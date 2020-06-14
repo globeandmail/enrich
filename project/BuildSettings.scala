@@ -24,8 +24,7 @@ import bintray.BintrayKeys._
 import com.typesafe.sbt.SbtNativePackager.autoImport._
 import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
-import com.typesafe.sbt.packager.docker.{ DockerVersion, ExecCmd }
-
+import com.typesafe.sbt.packager.docker.{ DockerVersion, ExecCmd, DockerPermissionStrategy }
 import scoverage.ScoverageKeys._
 
 import org.scalafmt.sbt.ScalafmtPlugin.autoImport._
@@ -39,7 +38,7 @@ object BuildSettings {
     version               :=  "1.4.2",
     javacOptions          :=  Seq("-source", "11", "-target", "11"),
     resolvers             ++= Dependencies.resolutionRepos,
-    licenses              += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0.html")),
+    licenses              += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0.html"))
   )
 
   /** Custom sbt-buildinfo replacement, used by SCE only */
@@ -59,7 +58,7 @@ object BuildSettings {
   )
 
   /** Snowplow Common Enrich Maven publishing settings */
-  lazy val publishSettings = bintraySettings ++ Seq(
+  lazy val publishSettings: Seq[sbt.Setting[_]] = bintraySettings ++ Seq(
     publishMavenStyle := true,
     publishArtifact := true,
     publishArtifact in Test := false,
@@ -82,7 +81,7 @@ object BuildSettings {
 
   lazy val formatting = Seq(
     scalafmtConfig    := file(".scalafmt.conf"),
-    scalafmtOnCompile := false
+    scalafmtOnCompile := true
   )
 
   lazy val scoverageSettings = Seq(
@@ -127,6 +126,8 @@ object BuildSettings {
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
     dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     daemonUserUid in Docker := None,
     defaultLinuxInstallLocation in Docker := "/home/snowplow" // must be home directory of daemonUser
   )
@@ -138,6 +139,8 @@ object BuildSettings {
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
     dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     dockerCommands := dockerCommands.value.map {
       case ExecCmd("ENTRYPOINT", args) => ExecCmd("ENTRYPOINT", "docker-entrypoint.sh", args)
       case e => e
