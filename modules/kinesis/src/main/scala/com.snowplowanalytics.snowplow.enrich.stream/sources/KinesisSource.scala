@@ -28,10 +28,7 @@ import scala.util.control.NonFatal
 
 import cats.Id
 import cats.syntax.either._
-import com.amazonaws.auth.AWSCredentialsProvider
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
-import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder
 import software.amazon.kinesis.common.{InitialPositionInStream, InitialPositionInStreamExtended}
 import software.amazon.kinesis.exceptions.ThrottlingException
 import software.amazon.kinesis.metrics.NullMetricsFactory
@@ -62,7 +59,7 @@ import io.circe.Json
 
 import model.{Kinesis, SentryConfig, StreamsConfig}
 import sinks._
-import utils.{getAWSCredentialsProvider, getAwsCredentialsProvider}
+import utils.getAwsCredentialsProvider
 
 /** KinesisSource companion object with factory method */
 object KinesisSource {
@@ -81,11 +78,9 @@ object KinesisSource {
                          case _ => "Configured source/sink is not Kinesis".asLeft
                        }
       emitPii = utils.emitPii(enrichmentRegistry)
-      _ <- KinesisSink.validate(kinesisConfig, config.out.enriched)
       _ <- utils.validatePii(emitPii, config.out.pii)
-      _ <- KinesisSink.validate(kinesisConfig, config.out.bad)
       sourceProvider <- getAwsCredentialsProvider(kinesisConfig.aws)
-      sinkProvider <- getAWSCredentialsProvider(kinesisConfig.aws)
+      sinkProvider <- getAwsCredentialsProvider(kinesisConfig.aws)
     } yield new KinesisSource(
       client,
       adapterRegistry,
@@ -111,27 +106,26 @@ class KinesisSource private (
   kinesisConfig: Kinesis,
   sentryConfig: Option[SentryConfig],
   sourceProvider: AwsCredentialsProvider,
-  sinkProvider: AWSCredentialsProvider
+  sinkProvider: AwsCredentialsProvider
 ) extends Source(client, adapterRegistry, enrichmentRegistry, processor, config.out.partitionKey, sentryConfig) {
 
   override val MaxRecordSize = Some(1000000)
   private val DYANMODB_DEFAULT_INITIAL_RCU = 10
   private val DYANMODB_DEFAULT_INITIAL_WCU = 10
 
-  private val kClient = {
-    val endpointConfiguration =
-      new EndpointConfiguration(kinesisConfig.streamEndpoint, kinesisConfig.region)
-    AmazonKinesisClientBuilder
-      .standard()
-      .withCredentials(sinkProvider)
-      .withEndpointConfiguration(endpointConfiguration)
-      .build()
-  }
+  private val kinesisSinkClient =
+    KinesisClientUtil.createKinesisAsyncClient(
+      KinesisAsyncClient
+        .builder()
+        .region(Region.of(kinesisConfig.region))
+        .credentialsProvider(sinkProvider)
+        .endpointOverride(new URI(kinesisConfig.streamEndpoint))
+    )
 
   override val threadLocalGoodSink: ThreadLocal[Sink] = new ThreadLocal[Sink] {
     override def initialValue: Sink =
       new KinesisSink(
-        kClient,
+        kinesisSinkClient,
         kinesisConfig.backoffPolicy,
         config.buffer,
         config.out.enriched,
@@ -148,7 +142,7 @@ class KinesisSource private (
           new ThreadLocal[Sink] {
             override def initialValue: Sink =
               new KinesisSink(
-                kClient,
+                kinesisSinkClient,
                 kinesisConfig.backoffPolicy,
                 config.buffer,
                 piiStreamName,
@@ -161,7 +155,7 @@ class KinesisSource private (
 
   override val threadLocalBadSink: ThreadLocal[Sink] = new ThreadLocal[Sink] {
     override def initialValue: Sink =
-      new KinesisSink(kClient, kinesisConfig.backoffPolicy, config.buffer, config.out.bad, tracker)
+      new KinesisSink(kinesisSinkClient, kinesisConfig.backoffPolicy, config.buffer, config.out.bad, tracker)
   }
 
   /** Never-ending processing loop over source stream. */

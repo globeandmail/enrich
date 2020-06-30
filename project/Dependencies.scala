@@ -58,7 +58,6 @@ object Dependencies {
     val collectorPayload = "0.0.0"
     val schemaSniffer    = "0.0.0"
 
-    val awsSdkV1         = "1.11.566"
     val awsSdk           = "2.13.50"
     val gcpSdk           = "1.106.0"
     val kinesisClient    = "2.2.11"
@@ -128,9 +127,9 @@ object Dependencies {
     val scalaTest        = "org.scalatest"              %% "scalatest"                                % V.scalaTest       % Test
 
     // Stream
-    val kinesisSdkV1     = "com.amazonaws"                    %  "aws-java-sdk-kinesis"              % V.awsSdkV1
-    val s3SdkV1          = "com.amazonaws"                    %  "aws-java-sdk-s3"                   % V.awsSdkV1
+    val s3Sdk            = "software.amazon.awssdk"           %  "s3"                                % V.awsSdk
     val authSdk          = "software.amazon.awssdk"           %  "auth"                              % V.awsSdk
+    val kinesisSdk       = "software.amazon.awssdk"           %  "kinesis"                           % V.awsSdk
     val dynamodbSdk      = "software.amazon.awssdk"           %  "dynamodb"                          % V.awsSdk
     val kinesisClient    = "software.amazon.kinesis"          %  "amazon-kinesis-client"             % V.kinesisClient
     val gsSdk            = "com.google.cloud"                 %  "google-cloud-storage"              % V.gcpSdk
