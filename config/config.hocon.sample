@@ -20,19 +20,19 @@ enrich {
 
     in {
       # Stream/topic where the raw events to be enriched are located
-      raw = {{streamsInRaw}}
+      raw = "collectorGood"
       raw = ${?ENRICH_STREAMS_IN_RAW}
     }
 
     out {
       # Stream/topic where the events that were successfully enriched will end up
-      enriched = {{outEnriched}}
+      enriched = "enrichedGood"
       enriched = ${?ENRICH_STREAMS_OUT_ENRICHED}
       # Stream/topic where the event that failed enrichment will be stored
-      bad = {{outBad}}
+      bad = "enrichedBad"
       bad = ${?ENRICH_STREAMS_OUT_BAD}
       # Stream/topic where the pii tranformation events will end up
-      pii = {{outPii}}
+      pii = "enrichedGoodPII"
       pii = ${?ENRICH_STREAMS_OUT_PII}
 
       # How the output stream/topic will be partitioned.
@@ -42,7 +42,7 @@ enrich {
       # possible parittion keys correspond to.
       # Otherwise, the partition key will be a random UUID.
       # Note: Nsq does not make use of partition key.
-      partitionKey = {{partitionKeyName}}
+      partitionKey = ""
       partitionKey = ${?ENRICH_STREAMS_OUT_PARTITION_KEY}
     }
 
@@ -57,41 +57,37 @@ enrich {
       # 'kafka' for reading / writing to a Kafka topic
       # 'nsq' for reading / writing to a Nsq topic
       # 'stdin' for reading from stdin and writing to stdout and stderr
-      enabled =  {{sinkType}}
+      enabled =  "kinesis"
       enabled =  ${?ENRICH_STREAMS_SOURCE_SINK_ENABLED}
 
       # Region where the streams are located (AWS region, pertinent to kinesis sink/source type)
-      # region = {{region}}
-      # region = ${?ENRICH_STREAMS_SOURCE_SINK_REGION}
+      region = "us-east-1"
+      region = ${?ENRICH_STREAMS_SOURCE_SINK_REGION}
 
       ## Optional endpoint url configuration to override aws kinesis endpoints,
       ## this can be used to specify local endpoints when using localstack
-      # customEndpoint = {{kinesisEndpoint}}
-      # customEndpoint = ${?ENRICH_STREAMS_SOURCE_SINK_CUSTOM_ENDPOINT}
+      customEndpoint = "http://localhost:4566"
+      customEndpoint = ${?ENRICH_STREAMS_SOURCE_SINK_CUSTOM_ENDPOINT}
 
       ## Optional endpoint url configuration to override aws dyanomdb endpoints for Kinesis checkpoints lease table,
       ## this can be used to specify local endpoints when using Localstack
-      # dynamodbCustomEndpoint = "http://localhost:4569"
-      # dynamodbCustomEndpoint = ${?ENRICH_DYNAMODB_CUSTOM_ENDPOINT}
-
-      # Initial RCU/WCU are optional. These are the settings for Dynamodb lease table throughput initialization
-      # dynamodbInitialRCU = "{{leastTableInitialRCU}}"
-      # dynamodbInitialWCU = "{{leastTableInitialWCU}}"
+      dynamodbCustomEndpoint = "http://localhost:4566"
+      dynamodbCustomEndpoint = ${?ENRICH_DYNAMODB_CUSTOM_ENDPOINT}
 
       # Optional override to disable cloudwatch
-      # disableCloudWatch = true
-      # disableCloudWatch = ${?ENRICH_DISABLE_CLOUDWATCH}
+      disableCloudWatch = true
+      disableCloudWatch = ${?ENRICH_DISABLE_CLOUDWATCH}
 
       # AWS credentials
       # If both are set to 'default', use the default AWS credentials provider chain.
       # If both are set to 'iam', use AWS IAM Roles to provision credentials.
       # If both are set to 'env', use env variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-      # aws {
-      #   accessKey = iam
-      #   accessKey = ${?ENRICH_STREAMS_SOURCE_SINK_AWS_ACCESS_KEY}
-      #   secretKey = iam
-      #   secretKey = ${?ENRICH_STREAMS_SOURCE_SINK_AWS_SECRET_KEY}
-      # }
+      aws {
+         accessKey = default
+         accessKey = ${?ENRICH_STREAMS_SOURCE_SINK_AWS_ACCESS_KEY}
+         secretKey = default
+         secretKey = ${?ENRICH_STREAMS_SOURCE_SINK_AWS_SECRET_KEY}
+      }
 
       # GCP credentials
       # Either provide path to service account file or set environment variable GOOGLE_APPLICATION_CREDENTIALS
@@ -100,32 +96,30 @@ enrich {
       #   creds = ${?GOOGLE_APPLICATION_CREDENTIALS}
       # }
 
-      # Enhanced fan out (dedicated read throughput) vs. polling mode (shared read throughput):
-      # This is the Maximum number of records to get from Kinesis per call to GetRecords when in polling mode.
-      # The default behavior is using enhanced fan-out and it doesn't use this configuration.
-      # maxRecords = 10000
-      # maxRecords = ${?ENRICH_MAX_RECORDS}
+      # Maximum number of records to get from Kinesis per call to GetRecords
+      maxRecords = 10
+      maxRecords = ${?ENRICH_MAX_RECORDS}
 
       # LATEST: most recent data.
       # TRIM_HORIZON: oldest available data.
       # "AT_TIMESTAMP": Start from the record at or after the specified timestamp
       # Note: This only effects the first run of this application on a stream.
       # (pertinent to kinesis source type)
-      # initialPosition = TRIM_HORIZON
-      # initialPosition = ${?ENRICH_STREAMS_SOURCE_SINK_INITIAL_POSITION}
+      initialPosition = LATEST
+      initialPosition = ${?ENRICH_STREAMS_SOURCE_SINK_INITIAL_POSITION}
 
       # Need to be specified when initial-position is "AT_TIMESTAMP".
       # Timestamp format need to be in "yyyy-MM-ddTHH:mm:ssZ".
       # Ex: "2017-05-17T10:00:00Z"
       # Note: Time need to specified in UTC.
-      initialTimestamp = "{{initialTimestamp}}"
-      initialTimestamp = ${?ENRICH_STREAMS_SOURCE_SINK_INITIAL_TIMESTAMP}
+      # initialTimestamp = "{{initialTimestamp}}"
+      # initialTimestamp = ${?ENRICH_STREAMS_SOURCE_SINK_INITIAL_TIMESTAMP}
 
       # Minimum and maximum backoff periods, in milliseconds
       backoffPolicy {
-        minBackoff = {{enrichStreamsOutMinBackoff}}
+        minBackoff = 10000
         minBackoff = ${?ENRICH_STREAMS_SOURCE_SINK_BACKOFF_POLICY_MIN_BACKOFF}
-        maxBackoff = {{enrichStreamsOutMaxBackoff}}
+        maxBackoff = 10000
         maxBackoff = ${?ENRICH_STREAMS_SOURCE_SINK_BACKOFF_POLICY_MAX_BACKOFF}
       }
 
@@ -182,18 +176,18 @@ enrich {
     # - the time in milliseconds since it was last emptied exceeds timeLimit when
     #   a new event enters the buffer
     buffer {
-      byteLimit = {{bufferByteThreshold}}
+      byteLimit = 1000
       byteLimit = ${?ENRICH_STREAMS_BUFFER_BYTE_LIMIT}
-      recordLimit = {{bufferRecordThreshold}} # Not supported by Kafka; will be ignored
+      recordLimit = 10 # Not supported by Kafka; will be ignored
       recordLimit = ${?ENRICH_STREAMS_BUFFER_RECORD_LIMIT}
-      timeLimit = {{bufferTimeThreshold}}
+      timeLimit = 1000
       timeLimit = ${?ENRICH_STREAMS_BUFFER_TIME_LIMIT}
     }
 
     # Used for a DynamoDB table to maintain stream state.
     # Used as the Kafka consumer group ID.
     # Used as the Google PubSub subscription name.
-    appName = "{{appName}}"
+    appName = "kinesis-enrich-stream-snowplow-tgam"
     appName = ${?ENRICH_STREAMS_APP_NAME}
   }
 
@@ -209,21 +203,21 @@ enrich {
   # ]
 
   # Optional section for tracking endpoints
-  monitoring {
-    snowplow {
-      collectorUri = "{{collectorUri}}"
-      collectorUri = ${?ENRICH_MONITORING_COLLECTOR_URI}
-      collectorPort = 80
-      collectorPort = ${?ENRICH_MONITORING_COLLECTOR_PORT}
-      appId = {{enrichAppName}}
-      appId = ${?ENRICH_MONITORING_APP_ID}
-      method = GET
-      method = ${?ENRICH_MONITORING_METHOD}
-    }
-  }
+  #monitoring {
+  #  snowplow {
+  #    collectorUri = "http://localhost"
+  #    collectorUri = ${?ENRICH_MONITORING_COLLECTOR_URI}
+  #    collectorPort = 80
+  #    collectorPort = ${?ENRICH_MONITORING_COLLECTOR_PORT}
+  #    appId = "kinesis-enrich-stream"
+  #    appId = ${?ENRICH_MONITORING_APP_ID}
+  #    method = GET
+  #    method = ${?ENRICH_MONITORING_METHOD}
+  #  }
+  #}
 
   # Optional section for Sentry
-  sentry {
-    dsn = ${?SENTRY_DSN}
-  }
+  #sentry {
+  #  dsn = ${?SENTRY_DSN}
+  #}
 }

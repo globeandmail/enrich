@@ -442,18 +442,20 @@ object EnrichmentManager {
     else
       iabEnrichment match {
         case Some(iab) =>
-          val ipAddressWithoutPort =  event.user_ipaddress match {
+          val ipAddressWithoutPort = event.user_ipaddress match {
             case IPv4Regex(ipv4) => ipv4
             case ipv6 =>
-              if (ipv6.contains('[') && ipv6.contains(']')) {
+              if (ipv6.contains('[') && ipv6.contains(']'))
                 ipv6.substring(ipv6.indexOf('['), ipv6.indexOf(']'))
-              } else ipv6
+              else ipv6
           }
-          iab.getIabContext(
-            Option(event.useragent),
-            Option(ipAddressWithoutPort),
-            Option(event.derived_tstamp).map(EventEnrichments.fromTimestamp)
-          ).map(_.some)
+          iab
+            .getIabContext(
+              Option(event.useragent),
+              Option(ipAddressWithoutPort),
+              Option(event.derived_tstamp).map(EventEnrichments.fromTimestamp)
+            )
+            .map(_.some)
         case None => None.asRight
       }
 
