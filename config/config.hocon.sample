@@ -217,7 +217,7 @@ enrich {
   }
 
   # Optional section for Sentry
-  sentry {
-    dsn = ${?SENTRY_DSN}
-  }
+  #sentry {
+  #  dsn = ${?SENTRY_DSN}
+  #}
 }
