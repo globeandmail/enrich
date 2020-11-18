@@ -271,7 +271,7 @@ class KinesisSource private (
     }
 
     private def processRecordsWithRetries(records: List[KinesisClientRecord]): Boolean =
-      try enrichAndStoreEvents(records.asScala.map(_.data().array).toList)
+      try enrichAndStoreEvents(records.asScala.map(record => new Array[Byte](record.data().remaining())).toList)
       catch {
         case NonFatal(e) =>
           // TODO: send an event when something goes wrong here
