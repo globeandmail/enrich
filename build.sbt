@@ -19,7 +19,7 @@
 lazy val root = project.in(file("."))
   .settings(name := "enrich")
   .settings(BuildSettings.basicSettings)
-  .aggregate(common, beam, stream, kinesis, kafka, nsq, stdin, fs2)
+  .aggregate(common, beam, stream, kinesis, kafka, nsq, stdin, integrationTests)
 
 lazy val common = project
   .in(file("modules/common"))
@@ -45,6 +45,7 @@ lazy val common = project
       Dependencies.Libraries.jaywayJsonpath,
       Dependencies.Libraries.iabClient,
       Dependencies.Libraries.yauaa,
+      Dependencies.Libraries.rhino,
       Dependencies.Libraries.guava,
       Dependencies.Libraries.circeOptics,
       Dependencies.Libraries.circeJackson,
@@ -54,8 +55,8 @@ lazy val common = project
       Dependencies.Libraries.scalaForex,
       Dependencies.Libraries.scalaWeather,
       Dependencies.Libraries.gatlingJsonpath,
+      Dependencies.Libraries.scalaLruMap,
       Dependencies.Libraries.badRows,
-      Dependencies.Libraries.igluClient,
       Dependencies.Libraries.snowplowRawEvent,
       Dependencies.Libraries.collectorPayload,
       Dependencies.Libraries.schemaSniffer,
@@ -130,11 +131,7 @@ lazy val nsq = project
   .settings(
     packageName in Docker := "snowplow/stream-enrich-nsq",
   )
-  .settings(libraryDependencies ++= Seq(
-    Dependencies.Libraries.log4j,
-    Dependencies.Libraries.log4jApi,
-    Dependencies.Libraries.nsqClient
-  ))
+  .settings(libraryDependencies ++= Seq(Dependencies.Libraries.nsqClient))
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .dependsOn(stream)
 
@@ -161,7 +158,6 @@ lazy val beam =
       buildInfoPackage := "com.snowplowanalytics.snowplow.enrich.beam.generated",
       libraryDependencies ++= Seq(
         Dependencies.Libraries.scio,
-        Dependencies.Libraries.tcnative,
         Dependencies.Libraries.beam,
         Dependencies.Libraries.sentry,
         Dependencies.Libraries.slf4j,
@@ -183,59 +179,13 @@ lazy val beam =
     )
     .enablePlugins(JavaAppPackaging, DockerPlugin, BuildInfoPlugin)
 
-Global / onChangedBuildSource := ReloadOnSourceChanges
-
-lazy val fs2 = project
-  .in(file("modules/fs2"))
-  .dependsOn(common)
-  .settings(BuildSettings.basicSettings)
-  .settings(BuildSettings.formatting)
-  .settings(BuildSettings.scoverageSettings)
+lazy val integrationTests = project
+  .in(file("modules/integration-tests"))
+  .settings(moduleName := "integration-tests")
+  .settings(allStreamSettings)
   .settings(BuildSettings.addExampleConfToTestCp)
-  .settings(BuildSettings.sbtAssemblySettings)
-  .settings(
-    name := "fs2-enrich",
-    description := "High-performance streaming Snowplow Enrich job built on top of functional streams",
-    buildInfoKeys := Seq[BuildInfoKey](organization, name, version, description),
-    buildInfoPackage := "com.snowplowanalytics.snowplow.enrich.fs2.generated",
-    packageName in Docker := "snowplow/fs2-enrich",
-  )
-  .settings(parallelExecution in Test := false)
-  .settings(
-    libraryDependencies ++= Seq(
-      Dependencies.Libraries.decline,
-      Dependencies.Libraries.fs2PubSub,
-      Dependencies.Libraries.circeExtras,
-      Dependencies.Libraries.circeLiteral,
-      Dependencies.Libraries.circeConfig,
-      Dependencies.Libraries.catsEffect,
-      Dependencies.Libraries.fs2,
-      Dependencies.Libraries.fs2Io,
-      Dependencies.Libraries.slf4j,
-      Dependencies.Libraries.sentry,
-      Dependencies.Libraries.log4cats,
-      Dependencies.Libraries.catsRetry,
-      Dependencies.Libraries.http4sClient,
-      Dependencies.Libraries.fs2BlobS3,
-      Dependencies.Libraries.fs2BlobGcs,
-      Dependencies.Libraries.metrics,
-      Dependencies.Libraries.pureconfig.withRevision(Dependencies.V.pureconfig013),
-      Dependencies.Libraries.pureconfigCats.withRevision(Dependencies.V.pureconfig013),
-      Dependencies.Libraries.pureconfigCirce.withRevision(Dependencies.V.pureconfig013),
-      Dependencies.Libraries.specs2,
-      Dependencies.Libraries.specs2CE,
-      Dependencies.Libraries.scalacheck,
-      Dependencies.Libraries.specs2Scalacheck,
-      Dependencies.Libraries.http4sDsl,
-      Dependencies.Libraries.http4sServer
-    ),
-    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
-  )
-  .enablePlugins(BuildInfoPlugin)
-  .settings(BuildSettings.dockerSettings)
-  .enablePlugins(BuildInfoPlugin, JavaAppPackaging, DockerPlugin)
-
-lazy val bench = project
-  .in(file("modules/bench"))
-  .dependsOn(fs2 % "test->test")
-  .enablePlugins(JmhPlugin)
+  .settings(libraryDependencies ++= Seq(
+    Dependencies.Libraries.kafka,
+    Dependencies.Libraries.jinJava
+  ))
+  .dependsOn(stream % "test->test", kafka % "test->compile")
