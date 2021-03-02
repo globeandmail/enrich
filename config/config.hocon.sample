@@ -74,10 +74,6 @@ enrich {
       # dynamodbCustomEndpoint = "http://localhost:4569"
       # dynamodbCustomEndpoint = ${?ENRICH_DYNAMODB_CUSTOM_ENDPOINT}
 
-      # Initial RCU/WCU are optional. These are the settings for Dynamodb lease table throughput initialization
-      # dynamodbInitialRCU = "{{leastTableInitialRCU}}"
-      # dynamodbInitialWCU = "{{leastTableInitialWCU}}"
-
       # Optional override to disable cloudwatch
       # disableCloudWatch = true
       # disableCloudWatch = ${?ENRICH_DISABLE_CLOUDWATCH}
@@ -100,9 +96,7 @@ enrich {
       #   creds = ${?GOOGLE_APPLICATION_CREDENTIALS}
       # }
 
-      # Enhanced fan out (dedicated read throughput) vs. polling mode (shared read throughput):
-      # This is the Maximum number of records to get from Kinesis per call to GetRecords when in polling mode.
-      # The default behavior is using enhanced fan-out and it doesn't use this configuration.
+      # Maximum number of records to get from Kinesis per call to GetRecords
       # maxRecords = 10000
       # maxRecords = ${?ENRICH_MAX_RECORDS}
 
@@ -223,7 +217,7 @@ enrich {
   }
 
   # Optional section for Sentry
-  sentry {
-    dsn = ${?SENTRY_DSN}
-  }
+  #sentry {
+  #  dsn = ${?SENTRY_DSN}
+  #}
 }
