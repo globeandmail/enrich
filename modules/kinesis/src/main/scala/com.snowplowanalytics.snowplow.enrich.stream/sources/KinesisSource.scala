@@ -19,7 +19,7 @@
 package com.snowplowanalytics.snowplow.enrich.stream
 package sources
 
-import java.net.{InetAddress, URI}
+import java.net.InetAddress
 import java.util.{List, UUID}
 
 import scala.util.control.Breaks._
@@ -28,28 +28,14 @@ import scala.util.control.NonFatal
 
 import cats.Id
 import cats.syntax.either._
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
-import software.amazon.kinesis.common.{InitialPositionInStream, InitialPositionInStreamExtended}
-import software.amazon.kinesis.exceptions.ThrottlingException
-import software.amazon.kinesis.metrics.NullMetricsFactory
-import software.amazon.kinesis.processor.{RecordProcessorCheckpointer, ShardRecordProcessorFactory}
-import software.amazon.kinesis.retrieval.KinesisClientRecord
-import software.amazon.kinesis.retrieval.polling.PollingConfig
-import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
-import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient
-import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
-import software.amazon.awssdk.regions.Region
-import software.amazon.kinesis.common.ConfigsBuilder
-import software.amazon.kinesis.common.KinesisClientUtil
-import software.amazon.kinesis.coordinator.Scheduler
-import software.amazon.kinesis.exceptions.InvalidStateException
-import software.amazon.kinesis.exceptions.ShutdownException
-import software.amazon.kinesis.lifecycle.events.InitializationInput
-import software.amazon.kinesis.lifecycle.events.LeaseLostInput
-import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput
-import software.amazon.kinesis.lifecycle.events.ShardEndedInput
-import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput
-import software.amazon.kinesis.processor.ShardRecordProcessor
+import com.amazonaws.auth.AWSCredentialsProvider
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
+import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder
+import com.amazonaws.services.kinesis.clientlibrary.interfaces._
+import com.amazonaws.services.kinesis.clientlibrary.exceptions._
+import com.amazonaws.services.kinesis.clientlibrary.lib.worker._
+import com.amazonaws.services.kinesis.model.Record
+import com.amazonaws.services.kinesis.metrics.impl.NullMetricsFactory
 import com.snowplowanalytics.iglu.client.Client
 import com.snowplowanalytics.snowplow.badrows.Processor
 import com.snowplowanalytics.snowplow.enrich.common.adapters.AdapterRegistry
@@ -59,7 +45,7 @@ import io.circe.Json
 
 import model.{Kinesis, SentryConfig, StreamsConfig}
 import sinks._
-import utils.getAwsCredentialsProvider
+import utils.getAWSCredentialsProvider
 
 /** KinesisSource companion object with factory method */
 object KinesisSource {
@@ -78,9 +64,10 @@ object KinesisSource {
                          case _ => "Configured source/sink is not Kinesis".asLeft
                        }
       emitPii = utils.emitPii(enrichmentRegistry)
+      _ <- KinesisSink.validate(kinesisConfig, config.out.enriched)
       _ <- utils.validatePii(emitPii, config.out.pii)
-      sourceProvider <- getAwsCredentialsProvider(kinesisConfig.aws)
-      sinkProvider <- getAwsCredentialsProvider(kinesisConfig.aws)
+      _ <- KinesisSink.validate(kinesisConfig, config.out.bad)
+      provider <- getAWSCredentialsProvider(kinesisConfig.aws)
     } yield new KinesisSource(
       client,
       adapterRegistry,
@@ -90,8 +77,7 @@ object KinesisSource {
       config,
       kinesisConfig,
       sentryConfig,
-      sourceProvider,
-      sinkProvider
+      provider
     )
 }
 
@@ -105,27 +91,25 @@ class KinesisSource private (
   config: StreamsConfig,
   kinesisConfig: Kinesis,
   sentryConfig: Option[SentryConfig],
-  sourceProvider: AwsCredentialsProvider,
-  sinkProvider: AwsCredentialsProvider
+  provider: AWSCredentialsProvider
 ) extends Source(client, adapterRegistry, enrichmentRegistry, processor, config.out.partitionKey, sentryConfig) {
 
   override val MaxRecordSize = Some(1000000)
-  private val DYANMODB_DEFAULT_INITIAL_RCU = 10
-  private val DYANMODB_DEFAULT_INITIAL_WCU = 10
 
-  private val kinesisSinkClient =
-    KinesisClientUtil.createKinesisAsyncClient(
-      KinesisAsyncClient
-        .builder()
-        .region(Region.of(kinesisConfig.region))
-        .credentialsProvider(sinkProvider)
-        .endpointOverride(new URI(kinesisConfig.streamEndpoint))
-    )
+  private val kClient = {
+    val endpointConfiguration =
+      new EndpointConfiguration(kinesisConfig.streamEndpoint, kinesisConfig.region)
+    AmazonKinesisClientBuilder
+      .standard()
+      .withCredentials(provider)
+      .withEndpointConfiguration(endpointConfiguration)
+      .build()
+  }
 
   override val threadLocalGoodSink: ThreadLocal[Sink] = new ThreadLocal[Sink] {
     override def initialValue: Sink =
       new KinesisSink(
-        kinesisSinkClient,
+        kClient,
         kinesisConfig.backoffPolicy,
         config.buffer,
         config.out.enriched,
@@ -142,7 +126,7 @@ class KinesisSource private (
           new ThreadLocal[Sink] {
             override def initialValue: Sink =
               new KinesisSink(
-                kinesisSinkClient,
+                kClient,
                 kinesisConfig.backoffPolicy,
                 config.buffer,
                 piiStreamName,
@@ -155,7 +139,7 @@ class KinesisSource private (
 
   override val threadLocalBadSink: ThreadLocal[Sink] = new ThreadLocal[Sink] {
     override def initialValue: Sink =
-      new KinesisSink(kinesisSinkClient, kinesisConfig.backoffPolicy, config.buffer, config.out.bad, tracker)
+      new KinesisSink(kClient, kinesisConfig.backoffPolicy, config.buffer, config.out.bad, tracker)
   }
 
   /** Never-ending processing loop over source stream. */
@@ -163,115 +147,78 @@ class KinesisSource private (
     val workerId = InetAddress.getLocalHost().getCanonicalHostName() + ":" + UUID.randomUUID()
     log.info("Using workerId: " + workerId)
 
-    val kinesisClient = KinesisClientUtil.createKinesisAsyncClient(
-      KinesisAsyncClient
-        .builder()
-        .credentialsProvider(sourceProvider)
-        .endpointOverride(new URI(kinesisConfig.streamEndpoint))
-        .region(Region.of(kinesisConfig.region))
-    )
-    val dynamoClient = DynamoDbAsyncClient
-      .builder()
-      .credentialsProvider(sourceProvider)
-      .endpointOverride(new URI(kinesisConfig.dynamodbEndpoint))
-      .region(Region.of(kinesisConfig.region))
-      .build()
-    val cloudWatchClient = CloudWatchAsyncClient
-      .builder()
-      .credentialsProvider(sourceProvider)
-      .region(Region.of(kinesisConfig.region))
-      .build()
+    val kinesisClientLibConfiguration = {
+      val kclc = new KinesisClientLibConfiguration(
+        config.appName,
+        config.in.raw,
+        provider,
+        workerId
+      ).withKinesisEndpoint(kinesisConfig.streamEndpoint)
+        .withMaxRecords(kinesisConfig.maxRecords)
+        .withRegionName(kinesisConfig.region)
+        // If the record list is empty, we still check whether it is time to flush the buffer
+        .withCallProcessRecordsEvenForEmptyRecordList(true)
+        .withDynamoDBEndpoint(kinesisConfig.dynamodbEndpoint)
+
+      val position = InitialPositionInStream.valueOf(kinesisConfig.initialPosition)
+      kinesisConfig.timestamp.right.toOption
+        .filter(_ => position == InitialPositionInStream.AT_TIMESTAMP)
+        .map(kclc.withTimestampAtInitialPositionInStream(_))
+        .getOrElse(kclc.withInitialPositionInStream(position))
+    }
 
     log.info(s"Running: ${config.appName}.")
     log.info(s"Processing raw input stream: ${config.in.raw}")
 
     val rawEventProcessorFactory = new RawEventProcessorFactory()
-
-    val configsBuilder = new ConfigsBuilder(
-      config.in.raw,
-      config.appName,
-      kinesisClient,
-      dynamoClient,
-      cloudWatchClient,
-      workerId,
-      rawEventProcessorFactory
-    )
-
-    val positionValue = InitialPositionInStream.valueOf(kinesisConfig.initialPosition)
-    val position = kinesisConfig.timestamp.right.toOption
-      .filter(_ => positionValue == InitialPositionInStream.AT_TIMESTAMP)
-      .map(InitialPositionInStreamExtended.newInitialPositionAtTimestamp(_))
-      .getOrElse(InitialPositionInStreamExtended.newInitialPosition(positionValue))
-
-    val metricFactory = kinesisConfig.disableCloudWatch match {
-      case Some(true) => new NullMetricsFactory()
-      case _ => null // KCL internally creates it.
+    val worker = kinesisConfig.disableCloudWatch match {
+      case Some(true) =>
+        new Worker.Builder()
+          .recordProcessorFactory(rawEventProcessorFactory)
+          .config(kinesisClientLibConfiguration)
+          .metricsFactory(new NullMetricsFactory())
+          .build()
+      case _ =>
+        new Worker.Builder()
+          .recordProcessorFactory(rawEventProcessorFactory)
+          .config(kinesisClientLibConfiguration)
+          .build()
     }
 
-    //Enhanced fan-out is the default retrieval behavior for KCL 2.x. So we have to override it.
-    val retrievalConfig = kinesisConfig.maxRecords match {
-      case Some(maxRecordsCount) =>
-        configsBuilder
-          .retrievalConfig()
-          .retrievalSpecificConfig(
-            new PollingConfig(config.in.raw, kinesisClient).maxRecords(maxRecordsCount)
-          )
-      case None => configsBuilder.retrievalConfig()
-    }
-
-    val scheduler = new Scheduler(
-      configsBuilder.checkpointConfig(),
-      configsBuilder.coordinatorConfig(),
-      configsBuilder
-        .leaseManagementConfig()
-        .initialLeaseTableReadCapacity(
-          kinesisConfig.dynamodbInitialRCU.getOrElse(DYANMODB_DEFAULT_INITIAL_RCU)
-        )
-        .initialLeaseTableWriteCapacity(
-          kinesisConfig.dynamodbInitialWCU.getOrElse(DYANMODB_DEFAULT_INITIAL_WCU)
-        )
-        .initialPositionInStream(position),
-      configsBuilder.lifecycleConfig(),
-      configsBuilder.metricsConfig().metricsFactory(metricFactory),
-      configsBuilder.processorConfig().callProcessRecordsEvenForEmptyRecordList(true),
-      retrievalConfig
-    )
-
-    scheduler.run()
+    worker.run()
   }
 
   // Factory needed by the Amazon Kinesis Consumer library to
   // create a processor.
-  class RawEventProcessorFactory extends ShardRecordProcessorFactory {
-    override def shardRecordProcessor: ShardRecordProcessor = new RawEventProcessor()
+  class RawEventProcessorFactory extends IRecordProcessorFactory {
+    override def createProcessor: IRecordProcessor = new RawEventProcessor()
   }
 
   // Process events from a Kinesis stream.
-  class RawEventProcessor extends ShardRecordProcessor {
+  class RawEventProcessor extends IRecordProcessor {
     private var kinesisShardId: String = _
 
     // Backoff and retry settings.
-    // make these configurations with default values.
     private val BACKOFF_TIME_IN_MILLIS = 3000L
     private val NUM_RETRIES = 10
 
-    override def initialize(initializationInput: InitializationInput) = {
-      log.info(s"Initializing record processor for shard: ${initializationInput.shardId()}")
-      this.kinesisShardId = initializationInput.shardId()
+    override def initialize(shardId: String) = {
+      log.info("Initializing record processor for shard: " + shardId)
+      this.kinesisShardId = shardId
     }
 
-    override def processRecords(processRecordsInput: ProcessRecordsInput) = {
+    override def processRecords(records: List[Record], checkpointer: IRecordProcessorCheckpointer) = {
 
-      if (!processRecordsInput.records().isEmpty)
-        log.info(s"Processing ${processRecordsInput.records().size()} records from $kinesisShardId")
-      val shouldCheckpoint = processRecordsWithRetries(processRecordsInput.records())
+      if (!records.isEmpty)
+        log.info(s"Processing ${records.size} records from $kinesisShardId")
+      val shouldCheckpoint = processRecordsWithRetries(records)
 
       if (shouldCheckpoint)
-        checkpoint(processRecordsInput.checkpointer())
+        checkpoint(checkpointer)
     }
 
-    private def processRecordsWithRetries(records: List[KinesisClientRecord]): Boolean =
-      try enrichAndStoreEvents(records.asScala.map(record => new Array[Byte](record.data().remaining())).toList)
+    private def processRecordsWithRetries(records: List[Record]): Boolean =
+      try enrichAndStoreEvents(records.asScala.map(_.getData.array).toList)
       catch {
         case NonFatal(e) =>
           // TODO: send an event when something goes wrong here
@@ -279,33 +226,13 @@ class KinesisSource private (
           false
       }
 
-    def leaseLost(leaseLostInput: LeaseLostInput) =
-      // do nothing, the new shard processor will take care of it.
-      log.info(s"Lease lost  ${leaseLostInput}")
+    override def shutdown(checkpointer: IRecordProcessorCheckpointer, reason: ShutdownReason) = {
+      log.info(s"Shutting down record processor for shard: $kinesisShardId")
+      if (reason == ShutdownReason.TERMINATE)
+        checkpoint(checkpointer)
+    }
 
-    def shardEnded(shardEndedInput: ShardEndedInput) =
-      try {
-        log.info(s"Shard ended for shard: $kinesisShardId")
-        shardEndedInput.checkpointer().checkpoint()
-      } catch {
-        case e: ShutdownException =>
-          log.error(s"Caught ShutdownException for endedShard ", e)
-        case e: InvalidStateException =>
-          log.error(s"Caught InvalidStateException for endedShard ", e)
-      }
-
-    def shutdownRequested(shutdownRequestedInput: ShutdownRequestedInput) =
-      try {
-        log.info(s"Shutting down record processor for shard: $kinesisShardId")
-        shutdownRequestedInput.checkpointer().checkpoint()
-      } catch {
-        case e: ShutdownException =>
-          log.error(s"Caught ShutdownException for shutdownRequestedInput", e)
-        case e: InvalidStateException =>
-          log.error(s"Caught InvalidStateException for shutdownRequestedInput", e)
-      }
-
-    private def checkpoint(checkpointer: RecordProcessorCheckpointer) = {
+    private def checkpoint(checkpointer: IRecordProcessorCheckpointer) = {
       log.info(s"Checkpointing shard $kinesisShardId")
       breakable {
         for (i <- 0 to NUM_RETRIES - 1) {

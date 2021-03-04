@@ -12,14 +12,17 @@
  */
 package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry
 
-import cats.Eval
+import java.net.InetAddress
+
+import cats.Id
+import cats.syntax.functor._
 
 import io.circe.literal._
 
 import org.joda.time.DateTime
-
 import com.snowplowanalytics.iglu.core.{SchemaKey, SchemaVer, SelfDescribingData}
 
+import inet.ipaddr.HostName
 import org.specs2.Specification
 import org.specs2.matcher.DataTables
 
@@ -27,9 +30,7 @@ class IabEnrichmentSpec extends Specification with DataTables {
 
   def is = s2"""
   performCheck should correctly perform IAB checks on valid input $e1
-  performCheck should fail on invalid IP                          $e2
-  getIabContext should fail on missing fields                     $e3
-  getIabContext should return a valid JObject on valid input      $e4
+  getIabContext should return a valid JObject on valid input      $e2
   """
 
   // When testing, localMode is set to true, so the URIs are ignored and the databases are loaded from test/resources
@@ -67,10 +68,9 @@ class IabEnrichmentSpec extends Specification with DataTables {
 
   def e1 =
     "SPEC NAME" || "USER AGENT" | "IP ADDRESS" | "EXPECTED SPIDER OR ROBOT" | "EXPECTED CATEGORY" | "EXPECTED REASON" | "EXPECTED PRIMARY IMPACT" |
-      "null UA/IP" !! null ! null ! false ! "BROWSER" ! "PASSED_ALL" ! "NONE" |
-      "valid UA/IP" !! "Xdroid" ! "192.168.0.1" ! false ! "BROWSER" ! "PASSED_ALL" ! "NONE" |
-      "valid UA, excluded IP" !! "Mozilla/5.0" ! "192.168.151.21" ! true ! "SPIDER_OR_ROBOT" ! "FAILED_IP_EXCLUDE" ! "UNKNOWN" |
-      "invalid UA, excluded IP" !! "xonitor" ! "192.168.0.1" ! true ! "SPIDER_OR_ROBOT" ! "FAILED_UA_INCLUDE" ! "UNKNOWN" |> {
+      "valid UA/IP" !! "Xdroid" ! "192.168.0.1".ip ! false ! "BROWSER" ! "PASSED_ALL" ! "NONE" |
+      "valid UA, excluded IP" !! "Mozilla/5.0" ! "192.168.151.21".ip ! true ! "SPIDER_OR_ROBOT" ! "FAILED_IP_EXCLUDE" ! "UNKNOWN" |
+      "invalid UA, excluded IP" !! "xonitor" ! "192.168.0.1".ip ! true ! "SPIDER_OR_ROBOT" ! "FAILED_UA_INCLUDE" ! "UNKNOWN" |> {
       (
         _,
         userAgent,
@@ -80,36 +80,31 @@ class IabEnrichmentSpec extends Specification with DataTables {
         expectedReason,
         expectedPrimaryImpact
       ) =>
-        (for {
-          e <- validConfig.enrichment[Eval]
-          res = e.performCheck(userAgent, ipAddress, DateTime.now())
-        } yield res).value must beRight.like {
-          case check =>
-            check.spiderOrRobot must_== expectedSpiderOrRobot and
-              (check.category must_== expectedCategory) and
-              (check.reason must_== expectedReason) and
-              (check.primaryImpact must_== expectedPrimaryImpact)
+        validConfig.enrichment[Id].map { e =>
+          e.performCheck(userAgent, ipAddress, DateTime.now()) must beRight.like {
+            case check =>
+              check.spiderOrRobot must_== expectedSpiderOrRobot and
+                (check.category must_== expectedCategory) and
+                (check.reason must_== expectedReason) and
+                (check.primaryImpact must_== expectedPrimaryImpact)
+          }
         }
     }
 
-  def e2 =
-    validConfig.enrichment[Eval].map(_.performCheck("", "foo//bar", DateTime.now())).value must
-      beLeft
-
-  def e3 =
-    validConfig.enrichment[Eval].map(_.getIabContext(None, None, None)).value must beLeft
-
-  def e4 = {
+  def e2 = {
     val responseJson =
       SelfDescribingData(
         SchemaKey("com.iab.snowplow", "spiders_and_robots", "jsonschema", SchemaVer.Full(1, 0, 0)),
         json"""{"spiderOrRobot": false, "category": "BROWSER", "reason": "PASSED_ALL", "primaryImpact": "NONE"}"""
       )
     validConfig
-      .enrichment[Eval]
-      .map(_.getIabContext(Some("Xdroid"), Some("192.168.0.1"), Some(DateTime.now())))
-      .value must
+      .enrichment[Id]
+      .map(_.getIabContext("Xdroid", "192.168.0.1".ip, DateTime.now())) must
       beRight(responseJson)
   }
 
+  private implicit class IpOps(s: String) {
+    def ip: InetAddress =
+      new HostName(s).toInetAddress
+  }
 }

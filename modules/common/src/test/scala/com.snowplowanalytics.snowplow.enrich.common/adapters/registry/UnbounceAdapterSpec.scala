@@ -24,6 +24,8 @@ import org.specs2.matcher.{DataTables, ValidatedMatchers}
 import loaders._
 import utils.Clock._
 
+import SpecHelpers._
+
 class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMatchers {
   def is = s2"""
   toRawEvents must return a Success Nel if the query string is valid                            $e1
@@ -109,20 +111,20 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
     val expected = NonEmptyList.one(
       RawEvent(
         Shared.api,
-        Map("tv" -> "com.unbounce-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson),
+        Map("tv" -> "com.unbounce-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e2 = {
     val params = SpecHelpers.toNameValuePairs("schema" -> "iglu:com.unbounce/test/jsonschema/1-0-0")
     val payload =
       CollectorPayload(Shared.api, params, ContentType.some, None, Shared.cljSource, Shared.context)
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure
           .InputData("body", None, "empty body: no events to process")
@@ -135,7 +137,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
       "page_id=f7afd389-65a3-45fa-8bad-b7a42236044c&page_name=Test-Webhook&variant=a&page_url=http%3A%2F%2Funbouncepages.com%2Ftest-webhook-1&data.json=%7B%22email%22%3A%5B%22test%40snowplowanalytics.com%22%5D%2C%22ip_address%22%3A%5B%22200.121.220.179%22%5D%2C%22time_submitted%22%3A%5B%2204%3A17%20PM%20UTC%22%5D%7D"
     val payload =
       CollectorPayload(Shared.api, Nil, None, body.some, Shared.cljSource, Shared.context)
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(
           "contentType",
@@ -152,7 +154,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
     val ct = "application/json"
     val payload =
       CollectorPayload(Shared.api, Nil, ct.some, body.some, Shared.cljSource, Shared.context)
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(
           "contentType",
@@ -179,7 +181,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
         FailureDetails.AdapterFailure
           .InputData("body", None, "empty body: no events to process")
       )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e6 = {
@@ -198,7 +200,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
       FailureDetails.AdapterFailure
         .InputData("data.json", None, "missing 'data.json' field in body")
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e7 = {
@@ -217,7 +219,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
       FailureDetails.AdapterFailure
         .InputData("data.json", None, "empty 'data.json' field in body")
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e8 = {
@@ -239,7 +241,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
         """invalid json: expected " got '{"emai...' (line 1, column 2)"""
       )
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e9 = {
@@ -259,7 +261,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
         FailureDetails.AdapterFailure
           .InputData("page_id", None, "missing 'page_id' field in body")
       )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e10 = {
@@ -278,7 +280,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
       FailureDetails.AdapterFailure
         .InputData("page_name", None, "missing 'page_name' field in body")
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e11 = {
@@ -298,7 +300,7 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
         FailureDetails.AdapterFailure
           .InputData("variant", None, "missing 'variant' field in body")
       )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e12 = {
@@ -317,6 +319,6 @@ class UnbounceAdapterSpec extends Specification with DataTables with ValidatedMa
       FailureDetails.AdapterFailure
         .InputData("page_url", None, "missing 'page_url' field in body")
     )
-    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(expected)
+    UnbounceAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(expected)
   }
 }

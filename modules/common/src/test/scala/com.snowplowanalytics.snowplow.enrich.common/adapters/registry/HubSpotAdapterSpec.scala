@@ -26,6 +26,8 @@ import org.specs2.matcher.{DataTables, ValidatedMatchers}
 import loaders._
 import utils.Clock._
 
+import SpecHelpers._
+
 class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMatchers {
   def is = s2"""
   payloadBodyToEvents must return a Success list of event JSON's from a valid payload body $e1
@@ -91,13 +93,13 @@ class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMat
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.hubspot/contact_creation/jsonschema/1-0-0","data":{"eventId":1,"subscriptionId":25458,"portalId":4737818,"occurredAt":"2018-10-10T04:23:19.845Z","attemptNumber":0,"objectId":123,"changeSource":"CRM","changeFlag":"NEW","appId":177698}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e4 = {
@@ -116,7 +118,7 @@ class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMat
       HubSpotAdapter.EventSchemaMap,
       "no schema associated with the provided type parameter at index 0"
     )
-    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(expected)
     )
   }
@@ -124,7 +126,7 @@ class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMat
   def e5 = {
     val payload =
       CollectorPayload(Shared.api, Nil, ContentType.some, None, Shared.cljSource, Shared.context)
-    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure
           .InputData("body", None, "empty body: not events to process")
@@ -135,7 +137,7 @@ class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMat
   def e6 = {
     val payload =
       CollectorPayload(Shared.api, Nil, None, "stub".some, Shared.cljSource, Shared.context)
-    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(
           "contentType",
@@ -156,7 +158,7 @@ class HubSpotAdapterSpec extends Specification with DataTables with ValidatedMat
       Shared.cljSource,
       Shared.context
     )
-    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    HubSpotAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure
           .InputData("contentType", ct, "expected application/json")

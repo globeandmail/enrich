@@ -36,12 +36,12 @@ object IpLookupsEnrichmentSpec {
     "37.228.225.32",
     "10d96bc7-e400-4b29-8a41-6911ad00ee98",
     "IE",
-    "LH",
-    "Dundalk",
-    "A91",
-    "53.999",
-    "-6.4183",
-    "Louth",
+    "L",
+    "Dublin",
+    "D02",
+    "53.3331",
+    "-6.2489",
+    "Leinster",
     """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.snowplowanalytics.snowplow/screen_view/jsonschema/1-0-0","data":{"name":"hello from Snowplow"}}}""",
     "curl/7.50.3",
     "com.snowplowanalytics.snowplow",
@@ -57,7 +57,7 @@ class IpLookupsEnrichmentSpec extends PipelineSpec {
     val url =
       "http://snowplow-hosted-assets.s3.amazonaws.com/third-party/maxmind/GeoLite2-City.mmdb"
     val localFile = "./ip_geo"
-    SpecHelpers.downloadLocalEnrichmentFile(url, localFile)
+    SpecHelpers.copyLocalEnrichmentFile("/beam-enrich-geolite2-city.mmdb", localFile)
 
     JobTest[Enrich.type]
       .args(

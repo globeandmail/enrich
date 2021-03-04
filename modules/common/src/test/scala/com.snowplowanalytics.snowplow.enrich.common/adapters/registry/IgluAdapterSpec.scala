@@ -24,6 +24,8 @@ import org.specs2.matcher.{DataTables, ValidatedMatchers}
 import loaders._
 import utils.Clock._
 
+import SpecHelpers._
+
 class IgluAdapterSpec extends Specification with DataTables with ValidatedMatchers {
   def is = s2"""
   toRawEvents should return a NEL containing one RawEvent if the CloudFront querystring is minimally populated           $e1
@@ -63,10 +65,10 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
     val staticNoPlatform = Map(
       "tv" -> "com.snowplowanalytics.iglu-v1",
       "e" -> "ue"
-    )
+    ).toOpt
     val static = staticNoPlatform ++ Map(
       "p" -> "app"
-    )
+    ).toOpt
   }
 
   def e1 = {
@@ -80,7 +82,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "ad_unit" -> ""
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expectedJson =
       """|{
@@ -102,7 +104,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       NonEmptyList.one(
         RawEvent(
           Shared.api,
-          Expected.static ++ Map("ue_pr" -> expectedJson),
+          Expected.static ++ Map("ue_pr" -> expectedJson).toOpt,
           None,
           Shared.cfSource,
           Shared.context
@@ -122,7 +124,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "aid" -> "webhooks"
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expectedMap = {
       val json =
@@ -142,7 +144,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       Map(
         "ue_pr" -> json,
         "aid" -> "webhooks"
-      )
+      ).toOpt
     }
 
     actual must beValid(
@@ -165,7 +167,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "nuid" -> ""
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cljSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expectedMap = {
       val json =
@@ -187,7 +189,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         "aid" -> "my webhook project",
         "cv" -> "clj-0.5.0-tom-0.0.4",
         "nuid" -> ""
-      )
+      ).toOpt
     }
 
     actual must beValid(
@@ -205,7 +207,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "p" -> "mob"
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expectedJson =
       """|{
@@ -223,7 +225,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       NonEmptyList.one(
         RawEvent(
           Shared.api,
-          Expected.staticNoPlatform ++ Map("p" -> "mob", "ue_pr" -> expectedJson),
+          Expected.staticNoPlatform ++ Map("p" -> "mob", "ue_pr" -> expectedJson).toOpt,
           None,
           Shared.cfSource,
           Shared.context
@@ -235,7 +237,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
   def e5 = {
     val params = SpecHelpers.toNameValuePairs()
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.of(
@@ -252,7 +254,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "p" -> "mob"
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.of(
@@ -268,7 +270,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
       "schema" -> "iglooooooo://blah"
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.cfSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList
@@ -295,7 +297,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expected = RawEvent(
       Shared.api,
@@ -304,7 +306,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         "e" -> "ue",
         "p" -> "mob",
         "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.acme/campaign/jsonschema/1-0-1","data":{"key":"value","everwets":"processed"}}}"""
-      ),
+      ).toOpt,
       "application/json".some,
       Shared.cljSource,
       Shared.context
@@ -329,7 +331,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expected = FailureDetails.AdapterFailure.InputData(
       "contentType",
@@ -355,7 +357,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(
@@ -374,7 +376,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
     val jsonStr = """{"key":"value"}"""
     val payload =
       CollectorPayload(Shared.api, params, None, jsonStr.some, Shared.cljSource, Shared.context)
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(
@@ -400,7 +402,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expected = RawEvent(
       Shared.api,
@@ -409,7 +411,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         "e" -> "ue",
         "p" -> "mob",
         "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.acme/campaign/jsonschema/1-0-1","data":{"some_param":"foo"}}}"""
-      ),
+      ).toOpt,
       "application/json".some,
       Shared.cljSource,
       Shared.context
@@ -431,7 +433,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(
@@ -456,7 +458,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(
@@ -481,7 +483,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expected = RawEvent(
       Shared.api,
@@ -490,7 +492,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         "e" -> "ue",
         "p" -> "srv",
         "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.acme/campaign/jsonschema/1-0-1","data":{"some_param":"foo","hello":"world"}}}"""
-      ),
+      ).toOpt,
       "application/x-www-form-urlencoded".some,
       Shared.cljSource,
       Shared.context
@@ -516,7 +518,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     val expected = RawEvent(
       Shared.api,
@@ -525,7 +527,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         "e" -> "ue",
         "p" -> "mob",
         "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.acme/campaign/jsonschema/1-0-1","data":{"key":"value","everwets":"processed"}}}"""
-      ),
+      ).toOpt,
       "application/json".some,
       Shared.cljSource,
       Shared.context
@@ -550,7 +552,7 @@ class IgluAdapterSpec extends Specification with DataTables with ValidatedMatche
         Shared.cljSource,
         Shared.context
       )
-    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = IgluAdapter.toRawEvents(payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(

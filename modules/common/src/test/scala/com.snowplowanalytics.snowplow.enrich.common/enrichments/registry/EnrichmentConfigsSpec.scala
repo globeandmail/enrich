@@ -14,12 +14,17 @@ package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry
 
 import java.net.URI
 
-import com.snowplowanalytics.forex.model._
-import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SchemaVer}
 import io.circe.literal._
 import io.circe.parser._
+
 import org.apache.commons.codec.binary.Base64
 import org.joda.money.CurrencyUnit
+
+import com.snowplowanalytics.forex.model._
+import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SchemaVer}
+
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf._
+
 import org.specs2.matcher.{DataTables, ValidatedMatchers}
 import org.specs2.mutable.Specification
 
@@ -42,7 +47,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(1, 0, 1)
       )
       val result = AnonIpEnrichment.parse(ipAnonJson, schemaKey)
-      result must beValid(AnonIpConf(AnonIPv4Octets(2), AnonIPv6Segments(3)))
+      result must beValid(AnonIpConf(schemaKey, AnonIPv4Octets(2), AnonIPv6Segments(3)))
     }
 
     "successfully construct an AnonIpEnrichment case class with default value for IPv6" in {
@@ -59,7 +64,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(1, 0, 0)
       )
       val result = AnonIpEnrichment.parse(ipAnonJson, schemaKey)
-      result must beValid(AnonIpConf(AnonIPv4Octets(2), AnonIPv6Segments(2)))
+      result must beValid(AnonIpConf(schemaKey, AnonIPv4Octets(2), AnonIPv6Segments(2)))
     }
   }
 
@@ -85,6 +90,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(2, 0, 0)
       )
       val expected = IpLookupsConf(
+        schemaKey,
         Some(
           (
             new URI(
@@ -131,6 +137,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(2, 0, 0)
       )
       val expected = RefererParserConf(
+        schemaKey,
         (
           new URI(
             "http://snowplow-hosted-assets.s3.amazonaws.com/third-party/referer/referer.json"
@@ -141,7 +148,6 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
       )
       val result = RefererParserEnrichment.parse(refererParserJson, schemaKey, false)
       result must beValid(expected)
-
     }
   }
 
@@ -174,6 +180,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(1, 0, 0)
       )
       val expected = CampaignAttributionConf(
+        schemaKey,
         List("utm_medium", "medium"),
         List("utm_source", "source"),
         List("utm_term"),
@@ -331,7 +338,7 @@ class EnrichmentConfigsSpec extends Specification with ValidatedMatchers with Da
         SchemaVer.Full(1, 0, 0)
       )
       val result = CookieExtractorEnrichment.parse(cookieExtractorEnrichmentJson, schemaKey)
-      result must beValid(CookieExtractorConf(List("foo", "bar")))
+      result must beValid(CookieExtractorConf(schemaKey, List("foo", "bar")))
     }
   }
 

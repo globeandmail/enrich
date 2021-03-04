@@ -42,6 +42,8 @@ import org.specs2.specification.BeforeAfter
 import loaders.CollectorPayload
 import utils.Clock._
 
+import SpecHelpers._
+
 class RemoteAdapterSpec extends Specification with ValidatedMatchers {
 
   def is =
@@ -189,14 +191,14 @@ class RemoteAdapterSpec extends Specification with ValidatedMatchers {
             "e" -> "ue",
             "p" -> mockPlatform,
             "ue_pr" -> s"""{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:$mockSchemaVendor/$mockSchemaName/$mockSchemaFormat/$mockSchemaVersion","data":$evtJson}}"""
-          ),
+          ).toOpt,
           None,
           Shared.cljSource,
           Shared.context
         )
       }
 
-    val they = testAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val they = testAdapter.toRawEvents(payload, SpecHelpers.client)
     they must beValid(expected)
   }
 
@@ -210,7 +212,7 @@ class RemoteAdapterSpec extends Specification with ValidatedMatchers {
         "empty body: not a valid remote adapter http://localhost:8091/myEnrichment payload"
       )
     )
-    testAdapter.toRawEvents(emptyListPayload, SpecHelpers.client).value must beInvalid(expected)
+    testAdapter.toRawEvents(emptyListPayload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e3 = {
@@ -223,7 +225,7 @@ class RemoteAdapterSpec extends Specification with ValidatedMatchers {
         "empty body: not a valid remote adapter http://localhost:8091/myEnrichment payload"
       )
     )
-    testAdapter.toRawEvents(bodylessPayload, SpecHelpers.client).value must beInvalid(expected)
+    testAdapter.toRawEvents(bodylessPayload, SpecHelpers.client) must beInvalid(expected)
   }
 
   def e4 = {

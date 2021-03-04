@@ -13,11 +13,12 @@
 package com.snowplowanalytics.snowplow.enrich.common
 package enrichments.registry.apirequest
 
-import cats.Eval
+import cats.Id
 
 import io.circe._
 import io.circe.literal._
 
+import com.snowplowanalytics.iglu.client.CirceValidator
 import com.snowplowanalytics.iglu.core.{SchemaKey, SchemaVer, SelfDescribingData}
 
 import org.specs2.Specification
@@ -41,6 +42,7 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
   This is a integration test for the ApiRequestEnrichment
   Basic Case                                      $e1
   POST, Auth, JSON inputs, cache, several outputs $e2
+  API output with number field                    $e3
   """
 
   object IntegrationTests {
@@ -229,6 +231,49 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
       ),
       json"""{"name": "Snowplow ETL", "jobflow_id": "j-ZKIY4CKQRX72", "state": "RUNNING", "created_at": "2016-01-21T13:14:10.193+03:00"}"""
     )
+
+    val configuration3 = json"""{
+      "vendor": "com.snowplowanalytics.snowplow.enrichments",
+      "name": "api_request_enrichment_config",
+      "enabled": true,
+      "parameters": {
+        "inputs": [
+          {
+            "key": "ip",
+            "pojo": {
+              "field": "user_ipaddress"
+            }
+          }
+        ],
+        "api": {
+          "http": {
+            "method": "GET",
+            "uri": "http://localhost:8001/geo/{{ip}}?format=json",
+            "timeout": 5000,
+            "authentication": {}
+          }
+        },
+        "outputs": [{
+          "schema": "iglu:com.snowplowanalytics.snowplow/geolocation_context/jsonschema/1-0-0",
+          "json": {
+            "jsonPath": "$$"
+          }
+        }],
+        "cache": {
+          "size": 3000,
+          "ttl": 60
+        }
+      }
+    }"""
+
+    val correctResultContext4 =
+      SelfDescribingData(
+        SchemaKey("com.snowplowanalytics.snowplow", "geolocation_context", "jsonschema", SchemaVer.Full(1, 0, 0)),
+        json"""{"latitude":32.234,"longitude":33.564}"""
+      )
+
+    val schema =
+      json"""{ "type": "object", "properties": { "latitude": { "type": [ "number" ] }, "longitude": { "type": [ "number" ] } }, "additionalProperties": false }"""
   }
 
   val SCHEMA_KEY =
@@ -258,12 +303,12 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
   def e1 = {
     val enrichment = ApiRequestEnrichment
       .parse(IntegrationTests.configuration, SCHEMA_KEY)
-      .map(_.enrichment[Eval].value)
+      .map(_.enrichment[Id])
       .toEither
     val event = new EnrichedEvent
     event.setApp_id("lookup-test")
     event.setUser_id("snowplower")
-    val context = enrichment.flatMap(_.lookup(event, Nil, Nil, None).value.toEither)
+    val context = enrichment.flatMap(_.lookup(event, Nil, Nil, None).toEither)
     context must beRight.like {
       case context =>
         context must contain(IntegrationTests.correctResultContext) and (context must have size 1)
@@ -273,7 +318,7 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
   def e2 = {
     val enrichment = ApiRequestEnrichment
       .parse(IntegrationTests.configuration2, SCHEMA_KEY)
-      .map(_.enrichment[Eval].value)
+      .map(_.enrichment[Id])
       .toEither
     val event = new EnrichedEvent
     event.setApp_id("lookup test")
@@ -286,7 +331,7 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
         List(IntegrationTests.weatherContext),
         List(IntegrationTests.customContexts),
         Some(IntegrationTests.unstructEvent)
-      ).value.toEither
+      ).toEither
     )
     enrichment.flatMap(
       _.lookup(
@@ -294,7 +339,7 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
         List(IntegrationTests.weatherContext),
         List(IntegrationTests.customContexts),
         Some(IntegrationTests.unstructEvent)
-      ).value.toEither
+      ).toEither
     )
 
     val context = enrichment.flatMap(
@@ -303,7 +348,7 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
         List(IntegrationTests.weatherContext),
         List(IntegrationTests.customContexts),
         Some(IntegrationTests.unstructEvent)
-      ).value.toEither
+      ).toEither
     )
 
     context must beRight.like {
@@ -312,6 +357,21 @@ class ApiRequestEnrichmentIntegrationTest extends Specification {
           beJson(IntegrationTests.correctResultContext3),
           beJson(IntegrationTests.correctResultContext2)
         ) and (contexts must have size 2)
+    }
+  }
+
+  def e3 = {
+    val enrichment = ApiRequestEnrichment
+      .parse(IntegrationTests.configuration3, SCHEMA_KEY)
+      .map(_.enrichment[Id])
+      .toEither
+    val event = new EnrichedEvent
+    event.setUser_ipaddress("127.0.0.1")
+    val context = enrichment.flatMap(_.lookup(event, Nil, Nil, None).toEither)
+    context must beRight.like {
+      case contexts =>
+        (contexts must have size 1) and (contexts must contain(IntegrationTests.correctResultContext4)) and
+          (CirceValidator.validate(contexts.head.data, IntegrationTests.schema) must beRight)
     }
   }
 }

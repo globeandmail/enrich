@@ -10,17 +10,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package adapters
-package registry
+package com.snowplowanalytics.snowplow.enrich.common.adapters.registry
 
 import cats.Monad
-import cats.data.{NonEmptyList, ValidatedNel}
+import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.data.Validated._
-import cats.syntax.either._
-import cats.syntax.eq._
-import cats.syntax.option._
-import cats.syntax.validated._
+import cats.implicits._
 
 import cats.effect.Clock
 
@@ -29,23 +24,23 @@ import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup
 import com.snowplowanalytics.iglu.core.{SchemaKey, SchemaVer, SelfDescribingData}
 import com.snowplowanalytics.iglu.core.circe.CirceIgluCodecs._
 
-import com.snowplowanalytics.snowplow.badrows.FailureDetails
-
 import io.circe._
 import io.circe.syntax._
 
 import org.apache.http.NameValuePair
 
 import org.joda.time.{DateTime, DateTimeZone}
-import org.joda.time.format.DateTimeFormat
-
-import loaders.CollectorPayload
-import utils.{HttpClient, JsonUtils => JU}
+import org.joda.time.format.{DateTimeFormat, DateTimeFormatter}
+import com.snowplowanalytics.snowplow.badrows.FailureDetails
+import com.snowplowanalytics.snowplow.enrich.common.RawEventParameters
+import com.snowplowanalytics.snowplow.enrich.common.adapters.RawEvent
+import com.snowplowanalytics.snowplow.enrich.common.loaders.CollectorPayload
+import com.snowplowanalytics.snowplow.enrich.common.utils.{HttpClient, JsonUtils => JU}
 
 trait Adapter {
 
   // Signature for a Formatter function
-  type FormatterFunc = (RawEventParameters) => Json
+  type FormatterFunc = RawEventParameters => Json
 
   // The encoding type to be used
   val EventEncType = "UTF-8"
@@ -53,7 +48,7 @@ trait Adapter {
   private val AcceptedQueryParameters = Set("nuid", "aid", "cv", "eid", "ttm", "url")
 
   // Datetime format we need to convert timestamps to
-  val JsonSchemaDateTimeFormat =
+  val JsonSchemaDateTimeFormat: DateTimeFormatter =
     DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(DateTimeZone.UTC)
 
   private def toStringField(seconds: Long): String = {
@@ -112,7 +107,7 @@ trait Adapter {
 
   /**
    * Converts a CollectorPayload instance into raw events.
-   * @param payload The CollectorPaylod containing one or more raw events as collected by a
+   * @param payload The `CollectorPayload` containing one or more raw events as collected by a
    * Snowplow collector
    * @param client The Iglu client used for schema lookup and validation
    * @return a Validation boxing either a NEL of RawEvents on Success, or a NEL of Failure Strings
@@ -126,8 +121,8 @@ trait Adapter {
    * @param parameters A NonEmptyList of name:value pairs
    * @return the name:value pairs in Map form
    */
-  protected[registry] def toMap(parameters: List[NameValuePair]): Map[String, String] =
-    parameters.map(p => p.getName -> p.getValue).toMap
+  protected[registry] def toMap(parameters: List[NameValuePair]): Map[String, Option[String]] =
+    parameters.map(p => p.getName -> Option(p.getValue)).toMap
 
   /**
    * Convenience function to build a simple formatter of RawEventParameters.
@@ -168,14 +163,22 @@ trait Adapter {
   ): RawEventParameters = {
     val params = formatter(parameters - ("nuid", "aid", "cv", "p"))
     val json = toUnstructEvent(SelfDescribingData(schema, params)).noSpaces
+    buildUnstructEventParams(tracker, platform, parameters, json)
+  }
+
+  def buildUnstructEventParams(
+    tracker: String,
+    platform: String,
+    parameters: RawEventParameters,
+    json: String
+  ): Map[String, Option[String]] =
     Map(
-      "tv" -> tracker,
-      "e" -> "ue",
-      "p" -> parameters.getOrElse("p", platform), // Required field
-      "ue_pr" -> json
+      "tv" -> Option(tracker),
+      "e" -> Some("ue"),
+      "p" -> parameters.getOrElse("p", Option(platform)), // Required field
+      "ue_pr" -> Option(json)
     ) ++
       parameters.filterKeys(AcceptedQueryParameters)
-  }
 
   /**
    * Creates a Snowplow unstructured event by nesting the provided JValue in a self-describing
@@ -223,13 +226,7 @@ trait Adapter {
     platform: String
   ): RawEventParameters = {
     val json = toUnstructEvent(SelfDescribingData(schema, eventJson.asJson)).noSpaces
-    Map(
-      "tv" -> tracker,
-      "e" -> "ue",
-      "p" -> qsParams.getOrElse("p", platform), // Required field
-      "ue_pr" -> json
-    ) ++
-      qsParams.filterKeys(AcceptedQueryParameters)
+    buildUnstructEventParams(tracker, platform, qsParams, json)
   }
 
   /**
@@ -251,14 +248,7 @@ trait Adapter {
     platform: String
   ): RawEventParameters = {
     val json = toUnstructEvent(SelfDescribingData(schema, eventJson)).noSpaces
-
-    Map(
-      "tv" -> tracker,
-      "e" -> "ue",
-      "p" -> qsParams.getOrElse("p", platform), // Required field
-      "ue_pr" -> json
-    ) ++
-      qsParams.filterKeys(AcceptedQueryParameters)
+    buildUnstructEventParams(tracker, platform, qsParams, json)
   }
 
   /**
@@ -272,17 +262,11 @@ trait Adapter {
    * or Failures
    */
   protected[registry] def rawEventsListProcessor(
-    rawEventsList: List[ValidatedNel[FailureDetails.AdapterFailure, RawEvent]]
+    rawEventsList: List[Validated[NonEmptyList[FailureDetails.AdapterFailure], RawEvent]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] = {
-    val successes: List[RawEvent] =
-      for {
-        Valid(s) <- rawEventsList
-      } yield s
-
-    val failures: List[FailureDetails.AdapterFailure] =
-      (for {
-        Invalid(NonEmptyList(h, t)) <- rawEventsList
-      } yield h :: t).flatten
+    val (failures, successes) = rawEventsList.separate match {
+      case (nel, list) => (nel.flatMap(_.toList), list)
+    }
 
     (successes, failures) match {
       // No Failures collected.
@@ -411,7 +395,7 @@ trait Adapter {
 object Adapter {
 
   /** The Iglu schema URI for a Snowplow unstructured event */
-  val UnstructEvent = SchemaKey(
+  val UnstructEvent: SchemaKey = SchemaKey(
     "com.snowplowanalytics.snowplow",
     "unstruct_event",
     "jsonschema",
@@ -419,7 +403,7 @@ object Adapter {
   )
 
   /** The Iglu schema URI for a Snowplow custom contexts */
-  val Contexts = SchemaKey(
+  val Contexts: SchemaKey = SchemaKey(
     "com.snowplowanalytics.snowplow",
     "contexts",
     "jsonschema",

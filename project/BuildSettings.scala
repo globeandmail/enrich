@@ -24,7 +24,7 @@ import bintray.BintrayKeys._
 import com.typesafe.sbt.SbtNativePackager.autoImport._
 import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
-import com.typesafe.sbt.packager.docker.{ DockerVersion, ExecCmd }
+import com.typesafe.sbt.packager.docker.{ ExecCmd, DockerPermissionStrategy }
 
 import scoverage.ScoverageKeys._
 
@@ -35,8 +35,8 @@ object BuildSettings {
   /** Common base settings */
   lazy val basicSettings = Seq(
     organization          :=  "com.snowplowanalytics",
-    scalaVersion          :=  "2.12.11",
-    version               :=  "1.3.0-rc9",
+    scalaVersion          :=  "2.12.10",
+    version               :=  "1.3.0",
     javacOptions          :=  Seq("-source", "1.8", "-target", "1.8"),
     resolvers             ++= Dependencies.resolutionRepos
   )
@@ -104,11 +104,6 @@ object BuildSettings {
     assemblyMergeStrategy in assembly := {
       case x if x.endsWith("ProjectSettings$.class") => MergeStrategy.first
       case x if x.endsWith("module-info.class") => MergeStrategy.first
-      // Below are AWS SDK v2 configuration files - can be discarded
-      case PathList(ps@_*) if Set("codegen.config" , "service-2.json" , "waiters-2.json" ,
-        "customization.config" , "examples-1.json" , "paginators-1.json", "mime.types", "io.netty.versions.properties")
-        .contains(ps.last) =>
-        MergeStrategy.discard
       case x =>
         val oldStrategy = (assemblyMergeStrategy in assembly).value
         oldStrategy(x)
@@ -128,9 +123,10 @@ object BuildSettings {
     dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/base-debian:0.1.0",
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
-    dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     daemonUserUid in Docker := None,
-    defaultLinuxInstallLocation in Docker := "/home/snowplow" // must be home directory of daemonUser
+    defaultLinuxInstallLocation in Docker := "/home/snowplow", // must be home directory of daemonUser
   )
 
   /** Docker settings, used by BE */
@@ -139,7 +135,8 @@ object BuildSettings {
     dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/k8s-dataflow:0.1.1",
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
-    dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     dockerCommands := dockerCommands.value.map {
       case ExecCmd("ENTRYPOINT", args) => ExecCmd("ENTRYPOINT", "docker-entrypoint.sh", args)
       case e => e

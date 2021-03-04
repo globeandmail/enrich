@@ -10,20 +10,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments.registry
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry
 
 import java.net.URI
 
 import cats.Monad
 import cats.data.{EitherT, NonEmptyList, ValidatedNel}
 import cats.implicits._
-import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey}
-import com.snowplowanalytics.refererparser._
+
 import io.circe.Json
 
-import utils.{ConversionUtils => CU}
-import utils.CirceUtils
+import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey}
+
+import com.snowplowanalytics.refererparser._
+
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.RefererParserConf
+import com.snowplowanalytics.snowplow.enrich.common.utils.{ConversionUtils => CU, CirceUtils}
 
 /** Companion object. Lets us create a RefererParserEnrichment from a Json */
 object RefererParserEnrichment extends ParseableEnrichment {
@@ -54,7 +56,7 @@ object RefererParserEnrichment extends ParseableEnrichment {
                 (uri, db, domains)
               }.toEither
       source <- getDatabaseUri(conf._1, conf._2).leftMap(NonEmptyList.one)
-    } yield RefererParserConf(file(source, conf._2, localFile, localMode), conf._3)).toValidated
+    } yield RefererParserConf(schemaKey, file(source, conf._2, localFile, localMode), conf._3)).toValidated
 
   private def file(
     uri: URI,

@@ -19,6 +19,7 @@
 package com.snowplowanalytics.snowplow.enrich.stream
 
 import java.text.SimpleDateFormat
+import java.net.URI
 
 import cats.syntax.either._
 
@@ -168,7 +169,7 @@ object model {
     readTimeout: Option[Long],
     url: String
   )
-  final case class SentryConfig(dsn: String)
+  final case class SentryConfig(dsn: URI)
   final case class EnrichConfig(
     streams: StreamsConfig,
     remoteAdapters: Option[List[RemoteAdapterConfig]],

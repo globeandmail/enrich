@@ -10,10 +10,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments
-package registry
-package sqlquery
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.sqlquery
 
 import scala.collection.immutable.IntMap
 
@@ -21,15 +18,17 @@ import cats.Monad
 import cats.data.{EitherT, NonEmptyList, ValidatedNel}
 import cats.implicits._
 
+import io.circe._
+import io.circe.generic.semiauto._
+
 import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SelfDescribingData}
 
 import com.snowplowanalytics.snowplow.badrows.FailureDetails
 
-import io.circe._
-import io.circe.generic.semiauto._
-
-import outputs.EnrichedEvent
-import utils.CirceUtils
+import com.snowplowanalytics.snowplow.enrich.common.outputs.EnrichedEvent
+import com.snowplowanalytics.snowplow.enrich.common.utils.CirceUtils
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.SqlQueryConf
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.{Enrichment, ParseableEnrichment}
 
 /** Lets us create an SqlQueryConf from a Json */
 object SqlQueryEnrichment extends ParseableEnrichment {
@@ -100,7 +99,7 @@ object SqlQueryEnrichment extends ParseableEnrichment {
  * @param db source DB configuration
  * @param query string representation of prepared SQL statement
  * @param output configuration of output context
- * @param ttl cache TTL
+ * @param ttl cache TTL in milliseconds
  * @param cache actual mutable LRU cache
  * @param connection initialized DB connection (a mutable single-value cache)
  */
@@ -134,12 +133,12 @@ final case class SqlQueryEnrichment[F[_]: Monad: DbExecutor](
     unstructEvent: Option[SelfDescribingData[Json]]
   ): F[ValidatedNel[FailureDetails.EnrichmentFailure, List[SelfDescribingData[Json]]]] = {
     val contexts = for {
-      map <- Input
-               .buildPlaceholderMap(inputs, event, derivedContexts, customContexts, unstructEvent)
-               .toEitherT[F]
-      _ <- EitherT(DbExecutor.allPlaceholdersFilled(db, connection, query.sql, map))
-             .leftMap(NonEmptyList.one)
-      result <- map match {
+      placeholders <- Input
+                        .buildPlaceholderMap(inputs, event, derivedContexts, customContexts, unstructEvent)
+                        .toEitherT[F]
+      verifiedPlaceholders <- EitherT(DbExecutor.allPlaceholdersFilled(db, connection, query.sql, placeholders))
+                                .leftMap(NonEmptyList.one)
+      result <- verifiedPlaceholders match {
                   case Some(m) =>
                     EitherT(get(m)).leftMap(NonEmptyList.one)
                   case None =>

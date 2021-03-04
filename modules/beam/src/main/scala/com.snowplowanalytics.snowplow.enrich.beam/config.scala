@@ -18,6 +18,7 @@ package enrich
 package beam
 
 import java.io.File
+import java.net.URI
 
 import scala.io.Source
 
@@ -48,10 +49,11 @@ object config {
     enriched: String,
     bad: String,
     pii: Option[String],
-    resolver: String,
-    enrichments: Option[String],
-    labels: Option[String],
-    sentryDSN: Option[String]
+    resolver: Json,
+    enrichmentConfs: List[EnrichmentConf],
+    labels: Map[String, String],
+    sentryDSN: Option[URI],
+    metrics: Boolean
   )
   object EnrichConfig {
 
@@ -61,41 +63,58 @@ object config {
         _ <- if (args.optional("help").isDefined) helpString(configurations).asLeft else "".asRight
         l <- configurations
                .collect {
-                 case RequiredConfiguration(key, _) =>
+                 case Configuration.Required(key, _) =>
                    args.optional(key).toValidNel(s"Missing `$key` argument")
                }
                .sequence[ValidatedNelS, String]
                .leftMap(_.toList.mkString("\n"))
                .toEither
         List(jobName, raw, enriched, bad, resolver) = l
+        pii = args.optional("pii")
+        enrichments = args.optional("enrichments")
+        labels = args.optional("labels")
+        sentryDsn = args.asMap.get("sentry-dsn").map(_.mkString(",")) // see #391
+        metrics = args.boolean("metrics", true)
+        resolverJson <- parseResolver(resolver)
+        client <- Client.parseDefault[Id](resolverJson).leftMap(_.toString).value
+        registryJson <- parseEnrichmentRegistry(enrichments, client)
+        confs <- EnrichmentRegistry.parse(registryJson, client, false).leftMap(_.toString).toEither
+        labels <- labels.map(parseLabels).getOrElse(Right(Map.empty[String, String]))
+        sentryDSN <- parseSentryDsn(sentryDsn)
+        _ <- if (emitPii(confs) && pii.isEmpty)
+               "A pii topic needs to be used in order to use the pii enrichment".asLeft
+             else
+               ().asRight
       } yield EnrichConfig(
         jobName,
         raw,
         enriched,
         bad,
-        args.optional("pii"),
-        resolver,
-        args.optional("enrichments"),
-        args.optional("labels"),
-        args.optional("sentry-dsn")
+        pii,
+        resolverJson,
+        confs,
+        labels,
+        sentryDSN,
+        metrics
       )
 
     private val configurations = List(
-      RequiredConfiguration("job-name", "Name of the Dataflow job that will be launched"),
-      RequiredConfiguration(
+      Configuration.Required("job-name", "Name of the Dataflow job that will be launched"),
+      Configuration.Required(
         "raw",
         "Name of the subscription to the raw topic projects/{project}/subscriptions/{subscription}"
       ),
-      RequiredConfiguration(
+      Configuration.Required(
         "enriched",
         "Name of the enriched topic projects/{project}/topics/{topic}"
       ),
-      RequiredConfiguration("bad", "Name of the bad topic projects/{project}/topics/{topic}"),
-      OptionalConfiguration("pii", "Name of the pii topic projects/{project}/topics/{topic}"),
-      RequiredConfiguration("resolver", "Path to the resolver file"),
-      OptionalConfiguration("enrichments", "Path to the directory containing the enrichment files"),
-      OptionalConfiguration("labels", "Dataflow labels to be set ie. env=qa1;region=eu"),
-      OptionalConfiguration("sentry-dsn", "Sentry DSN")
+      Configuration.Required("bad", "Name of the bad topic projects/{project}/topics/{topic}"),
+      Configuration.Optional("pii", "Name of the pii topic projects/{project}/topics/{topic}"),
+      Configuration.Required("resolver", "Path to the resolver file"),
+      Configuration.Optional("enrichments", "Path to the directory containing the enrichment files"),
+      Configuration.Optional("labels", "Dataflow labels to be set ie. env=qa1;region=eu"),
+      Configuration.Optional("sentry-dsn", "Sentry DSN"),
+      Configuration.Optional("metrics", "Enable ScioMetrics (default: true)")
     )
 
     /** Generates an help string from a list of conifugration */
@@ -103,8 +122,8 @@ object config {
       "Possible configuration are:\n" +
         configs
           .map {
-            case OptionalConfiguration(key, desc) => s"--$key=VALUE, optional, $desc"
-            case RequiredConfiguration(key, desc) => s"--$key=VALUE, required, $desc"
+            case Configuration.Optional(key, desc) => s"--$key=VALUE, optional, $desc"
+            case Configuration.Required(key, desc) => s"--$key=VALUE, required, $desc"
           }
           .mkString("\n") +
         "\n--help, Display this message" +
@@ -116,20 +135,11 @@ object config {
     def key: String
     def desc: String
   }
-  final case class OptionalConfiguration(key: String, desc: String) extends Configuration
-  final case class RequiredConfiguration(key: String, desc: String) extends Configuration
+  object Configuration {
+    final case class Optional(key: String, desc: String) extends Configuration
+    final case class Required(key: String, desc: String) extends Configuration
 
-  /** Case class holding the parsed job configuration */
-  final case class ParsedEnrichConfig(
-    raw: String,
-    enriched: String,
-    bad: String,
-    pii: Option[String],
-    resolver: Json,
-    enrichmentConfs: List[EnrichmentConf],
-    labels: Map[String, String],
-    sentryDSN: Option[String]
-  )
+  }
 
   /**
    * Parses a resolver at the specified path.
@@ -190,4 +200,17 @@ object config {
   def parseLabels(input: String): Either[String, Map[String, String]] =
     decode[Map[String, String]](input)
       .leftMap(_ => s"Invalid `labels` format, expected json object, received: $input")
+
+  /** Create a java.net.URI from string with Sentry DSN. */
+  private def parseSentryDsn(maybeDSN: Option[String]): Either[String, Option[URI]] =
+    maybeDSN match {
+      case Some(uri) if uri.startsWith("http://") || uri.startsWith("https://") =>
+        Either
+          .catchNonFatal(URI.create(uri))
+          .leftMap(e => s"Could not parse Sentry DSN as URI. Error: [${e.getMessage}]")
+          .map(Some(_))
+      case Some(uri) =>
+        Left(s"Sentry DSN [$uri] doesn't start with http:// or https://")
+      case _ => None.asRight
+    }
 }

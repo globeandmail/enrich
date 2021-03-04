@@ -114,7 +114,7 @@ object SpecHelpers {
     contentType: Option[String] = None,
     headers: List[String] = Nil,
     ipAddress: String = "",
-    networkUserId: String = java.util.UUID.randomUUID().toString(),
+    networkUserId: String = java.util.UUID.randomUUID().toString,
     path: String = "",
     querystring: Option[String] = None,
     refererUri: Option[String] = None,
@@ -171,7 +171,7 @@ object SpecHelpers {
 
   def copyResource(resource: String, localFile: String): Unit = {
     Files.copy(
-      Paths.get(getClass.getResource(resource).toURI()),
+      Paths.get(getClass.getResource(resource).toURI),
       Paths.get(localFile)
     )
     ()
@@ -180,7 +180,7 @@ object SpecHelpers {
 
 object CI
     extends Tag(
-      if (sys.env.get("CI").map(_ == "true").getOrElse(false)) "" else classOf[Ignore].getName
+      if (sys.env.get("CI").contains("true")) "" else classOf[Ignore].getName
     )
 
-object OER extends Tag(if (sys.env.get("OER_KEY").isDefined) "" else classOf[Ignore].getName)
+object OER extends Tag(if (sys.env.contains("OER_KEY")) "" else classOf[Ignore].getName)

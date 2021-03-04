@@ -10,9 +10,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package adapters
-package registry
+package com.snowplowanalytics.snowplow.enrich.common.adapters.registry
 
 import cats.Monad
 import cats.data.{NonEmptyList, ValidatedNel}
@@ -20,16 +18,21 @@ import cats.effect.Clock
 import cats.syntax.either._
 import cats.syntax.option._
 import cats.syntax.validated._
+
+import com.snowplowanalytics.iglu.core.{SchemaKey, SelfDescribingData}
+import com.snowplowanalytics.iglu.core.circe.implicits._
+
 import com.snowplowanalytics.iglu.client.Client
 import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup
-import com.snowplowanalytics.iglu.core.{SchemaKey, SelfDescribingData}
-import com.snowplowanalytics.iglu.core.circe.instances._
+
 import com.snowplowanalytics.snowplow.badrows._
+
 import io.circe._
 import io.circe.syntax._
 
-import loaders.CollectorPayload
-import utils.{ConversionUtils, HttpClient, JsonUtils}
+import com.snowplowanalytics.snowplow.enrich.common.adapters.RawEvent
+import com.snowplowanalytics.snowplow.enrich.common.loaders.CollectorPayload
+import com.snowplowanalytics.snowplow.enrich.common.utils.{ConversionUtils, HttpClient, JsonUtils}
 
 /**
  * Transforms a collector payload which either:
@@ -66,7 +69,7 @@ object IgluAdapter extends Adapter {
   ] = {
     val _ = client
     val params = toMap(payload.querystring)
-    (params.get("schema"), payload.body, payload.contentType) match {
+    (params.get("schema").flatten, payload.body, payload.contentType) match {
       case (_, Some(_), None) =>
         val msg = s"expected one of $contentTypesStr"
         Monad[F].pure(
@@ -74,9 +77,7 @@ object IgluAdapter extends Adapter {
         )
       case (None, Some(body), Some(contentType)) =>
         Monad[F].pure(payloadSdJsonToEvent(payload, body, contentType, params))
-      case (Some(schemaUri), Some(_), Some(_)) =>
-        Monad[F].pure(payloadToEventWithSchema(payload, schemaUri, params))
-      case (Some(schemaUri), None, _) =>
+      case (Some(schemaUri), _, _) => // Ignore body
         Monad[F].pure(payloadToEventWithSchema(payload, schemaUri, params))
       case (None, None, _) =>
         val nel = NonEmptyList.of(
@@ -101,7 +102,7 @@ object IgluAdapter extends Adapter {
     payload: CollectorPayload,
     body: String,
     contentType: String,
-    params: Map[String, String]
+    params: Map[String, Option[String]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] =
     contentType match {
       case contentTypes._1 => sdJsonBodyToEvent(payload, body, params)
@@ -122,7 +123,7 @@ object IgluAdapter extends Adapter {
   private[registry] def sdJsonBodyToEvent(
     payload: CollectorPayload,
     body: String,
-    params: Map[String, String]
+    params: Map[String, Option[String]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] =
     JsonUtils.extractJson(body) match {
       case Right(parsed) =>
@@ -163,7 +164,7 @@ object IgluAdapter extends Adapter {
   private[registry] def payloadToEventWithSchema(
     payload: CollectorPayload,
     schemaUri: String,
-    params: Map[String, String]
+    params: Map[String, Option[String]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] =
     SchemaKey.fromUri(schemaUri) match {
       case Left(parseError) =>
@@ -221,7 +222,7 @@ object IgluAdapter extends Adapter {
     payload: CollectorPayload,
     body: String,
     schemaUri: SchemaKey,
-    params: Map[String, String]
+    params: Map[String, Option[String]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] = {
     def buildRawEvent(e: Json): RawEvent =
       RawEvent(
@@ -268,7 +269,7 @@ object IgluAdapter extends Adapter {
     payload: CollectorPayload,
     body: String,
     schemaUri: SchemaKey,
-    params: Map[String, String]
+    params: Map[String, Option[String]]
   ): ValidatedNel[FailureDetails.AdapterFailure, NonEmptyList[RawEvent]] =
     (for {
       bodyMap <- ConversionUtils

@@ -12,16 +12,21 @@
  */
 package com.snowplowanalytics.snowplow.enrich.common
 
-import cats.Eval
+import cats.Id
 import cats.implicits._
+
 import com.snowplowanalytics.iglu.client.Client
 import com.snowplowanalytics.iglu.core.SelfDescribingData
-import com.snowplowanalytics.iglu.core.circe.instances._
+import com.snowplowanalytics.iglu.core.circe.implicits._
+
 import com.snowplowanalytics.lrumap.CreateLruMap._
+
 import io.circe.Json
 import io.circe.literal._
+
 import org.apache.http.NameValuePair
 import org.apache.http.message.BasicNameValuePair
+
 import com.snowplowanalytics.snowplow.enrich.common.utils.JsonUtils
 
 object SpecHelpers {
@@ -57,9 +62,8 @@ object SpecHelpers {
   }"""
 
   /** Builds an Iglu client from the above Iglu configuration. */
-  val client: Client[Eval, Json] = Client
-    .parseDefault[Eval](igluConfig)
-    .value
+  val client: Client[Id, Json] = Client
+    .parseDefault[Id](igluConfig)
     .value
     .getOrElse(throw new RuntimeException("invalid resolver configuration"))
 
@@ -99,4 +103,8 @@ object SpecHelpers {
       .leftMap(err => s"Can't parse [$rawJson] as Json, error: [$err]")
       .flatMap(SelfDescribingData.parse[Json])
       .leftMap(err => s"Can't parse Json [$rawJson] as as SelfDescribingData, error: [$err]")
+
+  implicit class MapOps[A, B](underlying: Map[A, B]) {
+    def toOpt: Map[A, Option[B]] = underlying.map { case (a, b) => (a, Option(b)) }
+  }
 }

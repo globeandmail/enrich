@@ -10,29 +10,28 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments
-package registry
-package apirequest
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.apirequest
 
 import java.util.UUID
 
-import cats.{Eval, Id, Monad}
+import cats.{Id, Monad}
 import cats.data.{EitherT, NonEmptyList, ValidatedNel}
-import cats.effect.Sync
 import cats.implicits._
 
-import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SelfDescribingData}
-import com.snowplowanalytics.iglu.core.circe.implicits._
-import com.snowplowanalytics.lrumap._
-
-import com.snowplowanalytics.snowplow.badrows.FailureDetails
+import cats.effect.Sync
 
 import io.circe._
 import io.circe.generic.auto._
 
-import outputs.EnrichedEvent
-import utils.{CirceUtils, HttpClient}
+import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SelfDescribingData}
+import com.snowplowanalytics.iglu.core.circe.implicits._
+
+import com.snowplowanalytics.lrumap._
+import com.snowplowanalytics.snowplow.badrows.FailureDetails
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.{Enrichment, ParseableEnrichment}
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.ApiRequestConf
+import com.snowplowanalytics.snowplow.enrich.common.outputs.EnrichedEvent
+import com.snowplowanalytics.snowplow.enrich.common.utils.{CirceUtils, HttpClient}
 
 object ApiRequestEnrichment extends ParseableEnrichment {
   override val supportedSchema =
@@ -135,7 +134,7 @@ final case class ApiRequestEnrichment[F[_]: Monad: HttpClient](
         contexts = jsons.parTraverse { json =>
                      SelfDescribingData
                        .parse(json)
-                       .leftMap(e => NonEmptyList.one(s"${json.noSpaces} is not self-describing, ${e.code}"))
+                       .leftMap(e => NonEmptyList.one(s"${json.noSpaces} is not self-describing JSON, ${e.code}"))
                    }
         outputs <- EitherT.fromEither[F](contexts)
       } yield outputs
@@ -149,7 +148,6 @@ final case class ApiRequestEnrichment[F[_]: Monad: HttpClient](
    * @return validated list of lookups, whole lookup will be failed if any of outputs were failed
    */
   private[apirequest] def getOutputs(validInputs: Option[Map[String, String]]): EitherT[F, NonEmptyList[String], List[Json]] = {
-    import cats.instances.parallel._
     val result: List[F[Either[Throwable, Json]]] =
       for {
         templateContext <- validInputs.toList
@@ -215,51 +213,32 @@ sealed trait CreateApiRequestEnrichment[F[_]] {
 object CreateApiRequestEnrichment {
   def apply[F[_]](implicit ev: CreateApiRequestEnrichment[F]): CreateApiRequestEnrichment[F] = ev
 
-  implicit def syncCreateApiRequestEnrichment[F[_]: Sync: HttpClient](
-    implicit CLM: CreateLruMap[F, String, (Either[Throwable, Json], Long)]
-  ): CreateApiRequestEnrichment[F] =
-    new CreateApiRequestEnrichment[F] {
-      override def create(conf: ApiRequestConf): F[ApiRequestEnrichment[F]] =
-        CLM
-          .create(conf.cache.size)
-          .map(c =>
-            ApiRequestEnrichment(
-              conf.schemaKey,
-              conf.inputs,
-              conf.api,
-              conf.outputs,
-              conf.cache.ttl,
-              c
-            )
-          )
-    }
-
-  implicit def evalCreateApiRequestEnrichment(
-    implicit CLM: CreateLruMap[Eval, String, (Either[Throwable, Json], Long)],
-    HTTP: HttpClient[Eval]
-  ): CreateApiRequestEnrichment[Eval] =
-    new CreateApiRequestEnrichment[Eval] {
-      override def create(conf: ApiRequestConf): Eval[ApiRequestEnrichment[Eval]] =
-        CLM
-          .create(conf.cache.size)
-          .map(c =>
-            ApiRequestEnrichment(
-              conf.schemaKey,
-              conf.inputs,
-              conf.api,
-              conf.outputs,
-              conf.cache.ttl,
-              c
-            )
-          )
-    }
-
   implicit def idCreateApiRequestEnrichment(
     implicit CLM: CreateLruMap[Id, String, (Either[Throwable, Json], Long)],
     HTTP: HttpClient[Id]
   ): CreateApiRequestEnrichment[Id] =
     new CreateApiRequestEnrichment[Id] {
       override def create(conf: ApiRequestConf): Id[ApiRequestEnrichment[Id]] =
+        CLM
+          .create(conf.cache.size)
+          .map(c =>
+            ApiRequestEnrichment(
+              conf.schemaKey,
+              conf.inputs,
+              conf.api,
+              conf.outputs,
+              conf.cache.ttl,
+              c
+            )
+          )
+    }
+
+  implicit def syncCreateApiRequestEnrichment[F[_]: Sync](
+    implicit CLM: CreateLruMap[F, String, (Either[Throwable, Json], Long)],
+    HTTP: HttpClient[F]
+  ): CreateApiRequestEnrichment[F] =
+    new CreateApiRequestEnrichment[F] {
+      def create(conf: ApiRequestConf): F[ApiRequestEnrichment[F]] =
         CLM
           .create(conf.cache.size)
           .map(c =>

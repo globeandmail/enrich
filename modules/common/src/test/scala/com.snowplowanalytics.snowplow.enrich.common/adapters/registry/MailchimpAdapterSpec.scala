@@ -10,21 +10,27 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package adapters
-package registry
+package com.snowplowanalytics.snowplow.enrich.common.adapters.registry
 
 import cats.data.NonEmptyList
 import cats.syntax.option._
+
 import com.snowplowanalytics.snowplow.badrows._
+
 import io.circe._
 import io.circe.literal._
+
 import org.joda.time.DateTime
+
 import org.specs2.Specification
 import org.specs2.matcher.{DataTables, ValidatedMatchers}
 
-import loaders._
-import utils.Clock._
+import com.snowplowanalytics.snowplow.enrich.common.adapters.RawEvent
+import com.snowplowanalytics.snowplow.enrich.common.loaders._
+import com.snowplowanalytics.snowplow.enrich.common.utils.Clock._
+
+import com.snowplowanalytics.snowplow.enrich.common.SpecHelpers
+import com.snowplowanalytics.snowplow.enrich.common.SpecHelpers._
 
 class MailchimpAdapterSpec extends Specification with DataTables with ValidatedMatchers {
   def is = s2"""
@@ -78,7 +84,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
     val map = Map(
       "data[merges][LNAME]" -> "Beemster",
       "data[merges][FNAME]" -> "Joshua"
-    )
+    ).toOpt
     val expected = List(
       ("data", json"""{ "merges": { "LNAME": "Beemster" }}"""),
       ("data", json"""{ "merges": { "FNAME": "Joshua" }}""")
@@ -104,14 +110,14 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
 
   def e5 =
     "SPEC NAME" || "PARAMS" | "EXPECTED OUTPUT" |
-      "Return Updated Params" !! Map("type" -> "subscribe", "fired_at" -> "2014-10-22 13:50:00") ! Map(
+      "Return Updated Params" !! Map("type" -> "subscribe", "fired_at" -> "2014-10-22 13:50:00").toOpt ! Map(
         "type" -> "subscribe",
         "fired_at" -> "2014-10-22T13:50:00.000Z"
-      ) |
-      "Return Same Params" !! Map("type" -> "subscribe", "id" -> "some_id") ! Map(
+      ).toOpt |
+      "Return Same Params" !! Map("type" -> "subscribe", "id" -> "some_id").toOpt ! Map(
         "type" -> "subscribe",
         "id" -> "some_id"
-      ) |> { (_, params, expected) =>
+      ).toOpt |> { (_, params, expected) =>
       val actual = MailchimpAdapter.reformatParameters(params)
       actual mustEqual expected
     }
@@ -142,12 +148,12 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
             |}
           |}""".stripMargin.replaceAll("[\n\r]", "")
 
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beValid(
       NonEmptyList.one(
         RawEvent(
           Shared.api,
-          Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson),
+          Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson).toOpt,
           ContentType.some,
           Shared.cljSource,
           Shared.context
@@ -183,12 +189,12 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
             |}
           |}""".stripMargin.replaceAll("[\n\r]", "")
 
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beValid(
       NonEmptyList.one(
         RawEvent(
           Shared.api,
-          Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson),
+          Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson).toOpt,
           ContentType.some,
           Shared.cljSource,
           Shared.context
@@ -216,12 +222,12 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
       )
       val expectedJson =
         "{\"schema\":\"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0\",\"data\":{\"schema\":\"" + expected + "\",\"data\":{\"type\":\"" + schema + "\"}}}"
-      val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+      val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
       actual must beValid(
         NonEmptyList.one(
           RawEvent(
             Shared.api,
-            Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson),
+            Map("tv" -> "com.mailchimp-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson).toOpt,
             ContentType.some,
             Shared.cljSource,
             Shared.context
@@ -251,7 +257,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
         Shared.cljSource,
         Shared.context
       )
-      val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+      val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
       actual must beInvalid(NonEmptyList.one(expected))
     }
 
@@ -294,7 +300,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
             |}
           |}""".stripMargin.replaceAll("[\n\r]", "")
 
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beValid(
       NonEmptyList.one(
         RawEvent(
@@ -305,7 +311,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
             "p" -> "srv",
             "ue_pr" -> expectedJson,
             "nuid" -> "123"
-          ),
+          ).toOpt,
           ContentType.some,
           Shared.cljSource,
           Shared.context
@@ -317,7 +323,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
   def e11 = {
     val payload =
       CollectorPayload(Shared.api, Nil, ContentType.some, None, Shared.cljSource, Shared.context)
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure
@@ -329,7 +335,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
   def e12 = {
     val payload =
       CollectorPayload(Shared.api, Nil, None, "stub".some, Shared.cljSource, Shared.context)
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(
@@ -350,7 +356,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
       Shared.cljSource,
       Shared.context
     )
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(
@@ -372,7 +378,7 @@ class MailchimpAdapterSpec extends Specification with DataTables with ValidatedM
       Shared.cljSource,
       Shared.context
     )
-    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client).value
+    val actual = MailchimpAdapter.toRawEvents(payload, SpecHelpers.client)
     actual must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure.InputData(

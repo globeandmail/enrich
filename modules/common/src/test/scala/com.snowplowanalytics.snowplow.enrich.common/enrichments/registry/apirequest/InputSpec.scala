@@ -10,11 +10,9 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments.registry
-package apirequest
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.apirequest
 
-import cats.Eval
+import cats.Id
 import cats.data.ValidatedNel
 import cats.syntax.option._
 
@@ -22,9 +20,11 @@ import io.circe.literal._
 
 import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SchemaVer, SelfDescribingData}
 
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.ApiRequestConf
+import com.snowplowanalytics.snowplow.enrich.common.outputs.EnrichedEvent
+
 import org.specs2.Specification
 import org.specs2.matcher.ValidatedMatchers
-import outputs.EnrichedEvent
 
 class InputSpec extends Specification with ValidatedMatchers {
   def is = s2"""
@@ -252,11 +252,11 @@ class InputSpec extends Specification with ValidatedMatchers {
       HttpApi("GET", uriTemplate, 1000, Authentication(None)),
       List(Output("iglu:someschema", JsonOutput("$").some)),
       Cache(10, 5)
-    ).enrichment[Eval]
-    val event = new outputs.EnrichedEvent
+    ).enrichment[Id]
+    val event = new EnrichedEvent
     event.setUser_id("chuwy")
     // time in true_tstamp won't be found
-    val request = enrichment.value.lookup(event, Nil, Nil, None).value
+    val request = enrichment.lookup(event, Nil, Nil, None)
     request must beValid.like {
       case response => response must be(Nil)
     }
@@ -276,7 +276,7 @@ class InputSpec extends Specification with ValidatedMatchers {
         json"""{ "somekey": "somevalue" }"""
       )
 
-    input.pull(new outputs.EnrichedEvent, Nil, List(obj), None) must beValid.like {
+    input.pull(new EnrichedEvent, Nil, List(obj), None) must beValid.like {
       case Some(context) =>
         context must beEqualTo(Map("permissive" -> "somevalue"))
       case None =>

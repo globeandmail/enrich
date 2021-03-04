@@ -24,6 +24,8 @@ import org.specs2.matcher.{DataTables, ValidatedMatchers}
 import loaders._
 import utils.Clock._
 
+import SpecHelpers._
+
 class VeroAdapterSpec extends Specification with DataTables with ValidatedMatchers {
   def is = s2"""
   toRawEvents must return a success for a valid "sent" type payload body being passed                $e1
@@ -72,13 +74,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/sent/jsonschema/1-0-0","data":{"event":{"name":"Test event","triggered_at":"2015-02-15T14:57:18.000Z"},"sent_at":"2015-06-22T23:37:18.000Z","campaign":{"name":"Order confirmation","permalink":"http://app.getvero.com/view/1/341d64944577ac1f70f560e37db54a25","subject":"Your order is being processed","tags":"tag 1, tag 2","variation":"Variation A","trigger-event":"purchased item","id":987,"type":"transactional"},"user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e2 = {
@@ -100,13 +102,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/delivered/jsonschema/1-0-0","data":{"event":{"name":"Test event","triggered_at":"2015-02-15T14:57:18.000Z"},"campaign":{"name":"Order confirmation","permalink":"http://app.getvero.com/view/1/341d64944577ac1f70f560e37db54a25","subject":"Your order is being processed","tags":"tag 1, tag 2","variation":"Variation A","trigger-event":"purchased item","id":987,"type":"transactional"},"delivered_at":"2015-06-22T23:37:18.000Z","message_id":"20130920062934.21270.53268@vero.com","sender_ip":"127.0.0.1","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e3 = {
@@ -128,13 +130,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/opened/jsonschema/1-0-0","data":{"opened_at":"2015-06-22T23:37:18.000Z","event":{"name":"Test event","triggered_at":"2015-02-15T14:57:18.000Z"},"campaign":{"name":"Order confirmation","permalink":"http://app.getvero.com/view/1/341d64944577ac1f70f560e37db54a25","subject":"Your order is being processed","tags":"tag 1, tag 2","variation":"Variation A","trigger-event":"purchased item","id":987,"type":"transactional"},"user_agent":"Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)","message_id":"20130920062934.21270.53268@vero.com","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e4 = {
@@ -156,13 +158,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/clicked/jsonschema/1-0-0","data":{"clicked_at":"2015-06-22T23:37:18.000Z","event":{"name":"Test event","triggered_at":"2015-02-15T14:57:18.000Z"},"campaign":{"name":"Order confirmation","permalink":"http://app.getvero.com/view/1/341d64944577ac1f70f560e37db54a25","subject":"Your order is being processed","tags":"tag 1, tag 2","variation":"Variation A","trigger-event":"purchased item","id":987,"type":"transactional"},"user_agent":"Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)","message_id":"20130920062934.21270.53268@vero.com","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e5 = {
@@ -184,13 +186,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/bounced/jsonschema/1-0-0","data":{"bounce_message":"521 5.2.1 :  AOL will not accept delivery of this message.","event":{"name":"Test event","triggered_at":"2015-02-15T14:57:18.000Z"},"bounced_at":"2015-06-22T23:37:18.000Z","campaign":{"name":"Order confirmation","permalink":"http://app.getvero.com/view/1/341d64944577ac1f70f560e37db54a25","subject":"Your order is being processed","variation":"Variation A","trigger-event":"purchased item","id":987,"type":"transactional"},"message_id":"20130920062934.21270.53268@vero.com","bounce_type":"hard","bounce_code":"521","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e6 = {
@@ -212,13 +214,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/unsubscribed/jsonschema/1-0-0","data":{"unsubscribed_at":"2015-06-22T23:37:18.000Z","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e7 = {
@@ -240,13 +242,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/created/jsonschema/1-0-0","data":{"role":"Bot","firstname":"Steve","company":"Vero","user":{"id":123,"email":"steve@getvero.com"}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e8 = {
@@ -268,13 +270,13 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
           "e" -> "ue",
           "p" -> "srv",
           "ue_pr" -> """{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.getvero/updated/jsonschema/1-0-0","data":{"user":{"id":123,"email":"steve@getvero.com"},"changes":{"tags":{"add":["active-customer"],"remove":["unactive-180-days"]}}}}}"""
-        ),
+        ).toOpt,
         ContentType.some,
         Shared.cljSource,
         Shared.context
       )
     )
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beValid(expected)
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beValid(expected)
   }
 
   def e9 =
@@ -298,12 +300,12 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
       )
       val expectedJson =
         "{\"schema\":\"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0\",\"data\":{\"schema\":\"" + expected + "\",\"data\":{}}}"
-      val actual = VeroAdapter.toRawEvents(payload, SpecHelpers.client).value
+      val actual = VeroAdapter.toRawEvents(payload, SpecHelpers.client)
       actual must beValid(
         NonEmptyList.one(
           RawEvent(
             Shared.api,
-            Map("tv" -> "com.getvero-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson),
+            Map("tv" -> "com.getvero-v1", "e" -> "ue", "p" -> "srv", "ue_pr" -> expectedJson).toOpt,
             ContentType.some,
             Shared.cljSource,
             Shared.context
@@ -315,7 +317,7 @@ class VeroAdapterSpec extends Specification with DataTables with ValidatedMatche
   def e10 = {
     val payload =
       CollectorPayload(Shared.api, Nil, ContentType.some, None, Shared.cljSource, Shared.context)
-    VeroAdapter.toRawEvents(payload, SpecHelpers.client).value must beInvalid(
+    VeroAdapter.toRawEvents(payload, SpecHelpers.client) must beInvalid(
       NonEmptyList.one(
         FailureDetails.AdapterFailure
           .InputData("body", None, "empty body: no events to process")

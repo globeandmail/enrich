@@ -10,10 +10,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package adapters
-package registry
-package snowplow
+package com.snowplowanalytics.snowplow.enrich.common.adapters.registry.snowplow
 
 import cats.Monad
 import cats.data.{NonEmptyList, ValidatedNel}
@@ -26,15 +23,18 @@ import cats.effect.Clock
 import io.circe._
 import io.circe.syntax._
 
-import com.snowplowanalytics.iglu.client.Client
-import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup
 import com.snowplowanalytics.iglu.core.{SchemaKey, SchemaVer, SelfDescribingData}
 import com.snowplowanalytics.iglu.core.circe.CirceIgluCodecs._
 
+import com.snowplowanalytics.iglu.client.Client
+import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup
+
 import com.snowplowanalytics.snowplow.badrows.FailureDetails
 
-import loaders.CollectorPayload
-import utils.{HttpClient, ConversionUtils => CU, JsonUtils => JU}
+import com.snowplowanalytics.snowplow.enrich.common.adapters.RawEvent
+import com.snowplowanalytics.snowplow.enrich.common.adapters.registry.Adapter
+import com.snowplowanalytics.snowplow.enrich.common.loaders.CollectorPayload
+import com.snowplowanalytics.snowplow.enrich.common.utils.{HttpClient, JsonUtils => JU, ConversionUtils => CU}
 
 /**
  * The Redirect Adapter is essentially a pre-processor for
@@ -86,35 +86,26 @@ object RedirectAdapter extends Adapter {
       Monad[F].pure(failure.invalidNel)
     } else
       originalParams.get("u") match {
-        case None =>
-          val msg = "missing `u` parameter: not a valid URI redirect"
-          val qs = originalParams.map(t => s"${t._1}=${t._2}").mkString("&")
-          val failure =
-            FailureDetails.TrackerProtocolViolation.InputData(
-              "querystring",
-              qs.some,
-              msg
-            )
-          Monad[F].pure(failure.invalidNel)
-        case Some(u) =>
+        case Some(Some(u)) =>
           val json = buildUriRedirect(u)
-          val newParams: Either[FailureDetails.TrackerProtocolViolation, Map[String, String]] =
-            if (originalParams.contains("e")) {
-              // Already have an event so add the URI redirect as a context (more fiddly)
-              def newCo = Map("co" -> toContext(json).noSpaces)
-              (originalParams.get("cx"), originalParams.get("co")) match {
-                case (None, None) => newCo.asRight
-                case (None, Some(co)) if co == "" => newCo.asRight
-                case (None, Some(co)) => addToExistingCo(json, co).map(str => Map("co" -> str))
-                case (Some(cx), _) => addToExistingCx(json, cx).map(str => Map("cx" -> str))
-              }
-            } else
-              // Add URI redirect as an unstructured event
-              Map("e" -> "ue", "ue_pr" -> toUnstructEvent(json).noSpaces).asRight
+          val newParams: Either[FailureDetails.TrackerProtocolViolation, Map[String, Option[String]]] =
+            (if (originalParams.contains("e")) {
+               // Already have an event so add the URI redirect as a context (more fiddly)
+               def newCo = Map("co" -> toContext(json).noSpaces)
+               (originalParams.get("cx"), originalParams.get("co")) match {
+                 case (None, None) => newCo.asRight
+                 case (None, Some(Some(co))) if co == "" => newCo.asRight
+                 case (None, Some(Some(co))) => addToExistingCo(json, co).map(str => Map("co" -> str))
+                 case (Some(Some(cx)), _) => addToExistingCx(json, cx).map(str => Map("cx" -> str))
+               }
+             } else
+               // Add URI redirect as an unstructured event
+               Map("e" -> "ue", "ue_pr" -> toUnstructEvent(json).noSpaces).asRight)
+              .map(_.map { case (k, v) => (k, Option(v)) })
 
           val fixedParams = Map(
-            "tv" -> TrackerVersion,
-            "p" -> originalParams.getOrElse("p", TrackerPlatform) // Required field
+            "tv" -> Some(TrackerVersion),
+            "p" -> originalParams.getOrElse("p", Some(TrackerPlatform)) // Required field
           )
 
           Monad[F].pure((for {
@@ -129,6 +120,16 @@ object RedirectAdapter extends Adapter {
                    )
                  )
           } yield ev).leftMap(e => NonEmptyList.one(e)).toValidated)
+        case _ =>
+          val msg = "missing `u` parameter: not a valid URI redirect"
+          val qs = originalParams.map(t => s"${t._1}=${t._2.getOrElse("null")}").mkString("&")
+          val failure =
+            FailureDetails.TrackerProtocolViolation.InputData(
+              "querystring",
+              qs.some,
+              msg
+            )
+          Monad[F].pure(failure.invalidNel)
       }
   }
 

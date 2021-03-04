@@ -14,9 +14,10 @@ package com.snowplowanalytics.snowplow.enrich.common
 package adapters
 package registry
 
-import cats.Eval
+import cats.Id
 import cats.data.NonEmptyList
 import cats.syntax.option._
+
 import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup._
 import com.snowplowanalytics.snowplow.badrows._
 import org.joda.time.DateTime
@@ -51,8 +52,8 @@ class CallrailAdapterSpec extends Specification with DataTables with ValidatedMa
       "tv" -> "com.callrail-v1",
       "e" -> "ue",
       "cv" -> "clj-0.6.0-tom-0.0.4"
-    )
-    val static = staticNoPlatform + ("p" -> "srv")
+    ).toOpt
+    val static = staticNoPlatform ++ Map("p" -> "srv").toOpt
   }
 
   def e1 = {
@@ -96,7 +97,7 @@ class CallrailAdapterSpec extends Specification with DataTables with ValidatedMa
       "nuid" -> "-"
     )
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.source, Shared.context)
-    val actual = CallrailAdapter.toRawEvents[Eval](payload, SpecHelpers.client).value
+    val actual = CallrailAdapter.toRawEvents[Id](payload, SpecHelpers.client)
 
     val expectedJson =
       """|{
@@ -147,7 +148,7 @@ class CallrailAdapterSpec extends Specification with DataTables with ValidatedMa
       NonEmptyList.one(
         RawEvent(
           Shared.api,
-          Expected.static ++ Map("ue_pr" -> expectedJson, "nuid" -> "-"),
+          Expected.static ++ Map("ue_pr" -> expectedJson, "nuid" -> "-").toOpt,
           None,
           Shared.source,
           Shared.context
@@ -159,7 +160,7 @@ class CallrailAdapterSpec extends Specification with DataTables with ValidatedMa
   def e2 = {
     val params = toNameValuePairs()
     val payload = CollectorPayload(Shared.api, params, None, None, Shared.source, Shared.context)
-    val actual = CallrailAdapter.toRawEvents[Eval](payload, SpecHelpers.client).value
+    val actual = CallrailAdapter.toRawEvents[Id](payload, SpecHelpers.client)
 
     actual must beInvalid(
       NonEmptyList.one(

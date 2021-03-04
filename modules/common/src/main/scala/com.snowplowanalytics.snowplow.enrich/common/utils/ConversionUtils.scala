@@ -15,7 +15,7 @@ package utils
 
 import java.lang.{Byte => JByte, Integer => JInteger}
 import java.math.{BigDecimal => JBigDecimal}
-import java.net.{URI, URLDecoder, URLEncoder}
+import java.net.{InetAddress, URI, URLDecoder, URLEncoder}
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
@@ -28,6 +28,8 @@ import cats.syntax.either._
 import cats.syntax.option._
 
 import com.snowplowanalytics.snowplow.badrows.FailureDetails
+
+import inet.ipaddr.HostName
 
 import io.lemonlabs.uri.{Uri, Url}
 import io.lemonlabs.uri.config.UriConfig
@@ -463,12 +465,16 @@ object ConversionUtils {
   def booleanToJByte(bool: Boolean): JByte =
     (if (bool) 1 else 0).toByte
 
-  def parseUrlEncodedForm(s: String): Either[String, Map[String, String]] =
+  def parseUrlEncodedForm(s: String): Either[String, Map[String, Option[String]]] =
     for {
       r <- Either
              .catchNonFatal(URLEncodedUtils.parse(URI.create("http://localhost/?" + s), UTF_8))
              .leftMap(_.getMessage)
       nvps = r.asScala.toList
-      pairs = nvps.map(p => p.getName() -> p.getValue())
+      pairs = nvps.map(p => p.getName() -> Option(p.getValue()))
     } yield pairs.toMap
+
+  /** Extract valid IP (v4 or v6) address from a string */
+  def extractInetAddress(arg: String): Option[InetAddress] =
+    Option(new HostName(arg).asInetAddress)
 }

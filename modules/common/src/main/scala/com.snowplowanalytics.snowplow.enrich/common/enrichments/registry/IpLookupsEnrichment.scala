@@ -10,9 +10,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments
-package registry
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry
 
 import java.net.URI
 
@@ -20,14 +18,17 @@ import cats.Functor
 import cats.data.{NonEmptyList, ValidatedNel}
 import cats.implicits._
 
-import com.snowplowanalytics.maxmind.iplookups._
-import com.snowplowanalytics.maxmind.iplookups.model._
+import io.circe._
+
+import inet.ipaddr.HostName
 
 import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey}
 
-import io.circe._
+import com.snowplowanalytics.maxmind.iplookups._
+import com.snowplowanalytics.maxmind.iplookups.model._
 
-import utils.CirceUtils
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.IpLookupsConf
+import com.snowplowanalytics.snowplow.enrich.common.utils.CirceUtils
 
 /** Companion object. Lets us create an IpLookupsEnrichment instance from a Json. */
 object IpLookupsEnrichment extends ParseableEnrichment {
@@ -56,6 +57,7 @@ object IpLookupsEnrichment extends ParseableEnrichment {
           getArgumentFromName(c, "connectionType").sequence
         ).mapN { (geo, isp, domain, connection) =>
           IpLookupsConf(
+            schemaKey,
             file(geo, localMode),
             file(isp, localMode),
             file(domain, localMode),
@@ -106,6 +108,7 @@ object IpLookupsEnrichment extends ParseableEnrichment {
         lruCacheSize = 20000
       )
       .map(i => IpLookupsEnrichment(i))
+
 }
 
 /**
@@ -120,10 +123,7 @@ final case class IpLookupsEnrichment[F[_]](ipLookups: IpLookups[F]) extends Enri
    * @return an IpLookupResult
    */
   def extractIpInformation(ip: String): F[IpLookupResult] =
-    ip match {
-      case EnrichmentManager.IPv4Regex(ipv4WithoutPort) => ipLookups.performLookups(ipv4WithoutPort)
-      case _ => ipLookups.performLookups(ip)
-    }
+    ipLookups.performLookups(Either.catchNonFatal(new HostName(ip).toAddress).fold(_ => ip, addr => addr.toString))
 }
 
 private[enrichments] final case class IpLookupsDatabase(

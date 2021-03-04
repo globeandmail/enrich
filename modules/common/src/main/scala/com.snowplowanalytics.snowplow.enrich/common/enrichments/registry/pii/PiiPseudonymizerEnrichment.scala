@@ -10,9 +10,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package enrichments.registry
-package pii
+package com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.pii
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.MutableList
@@ -20,24 +18,27 @@ import scala.collection.mutable.MutableList
 import cats.data.ValidatedNel
 import cats.implicits._
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode, TextNode}
-
-import com.jayway.jsonpath.{Configuration, JsonPath => JJsonPath}
-import com.jayway.jsonpath.MapFunction
-
-import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SelfDescribingData}
-
 import io.circe._
 import io.circe.jackson._
 import io.circe.syntax._
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.{ArrayNode, NullNode, ObjectNode, TextNode}
+import com.fasterxml.jackson.databind.ObjectMapper
+
+import com.jayway.jsonpath.{Configuration, JsonPath => JJsonPath}
+import com.jayway.jsonpath.MapFunction
+
 import org.apache.commons.codec.digest.DigestUtils
 
-import adapters.registry.Adapter
-import outputs.EnrichedEvent
-import serializers._
-import utils.CirceUtils
+import com.snowplowanalytics.iglu.core.{SchemaCriterion, SchemaKey, SelfDescribingData}
+
+import com.snowplowanalytics.snowplow.enrich.common.adapters.registry.Adapter
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf.PiiPseudonymizerConf
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.{Enrichment, ParseableEnrichment}
+import com.snowplowanalytics.snowplow.enrich.common.outputs.EnrichedEvent
+import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.pii.serializers._
+import com.snowplowanalytics.snowplow.enrich.common.utils.CirceUtils
 
 /** Companion object. Lets us create a PiiPseudonymizerEnrichment from a Json. */
 object PiiPseudonymizerEnrichment extends ParseableEnrichment {
@@ -58,7 +59,7 @@ object PiiPseudonymizerEnrichment extends ParseableEnrichment {
     localMode: Boolean = false
   ): ValidatedNel[String, PiiPseudonymizerConf] = {
     for {
-      conf <- matchesSchema(config, schemaKey)
+      conf <- isParseable(config, schemaKey)
       emitIdentificationEvent = CirceUtils
                                   .extract[Boolean](conf, "emitEvent")
                                   .toOption
@@ -70,7 +71,7 @@ object PiiPseudonymizerEnrichment extends ParseableEnrichment {
                        .extract[PiiStrategyPseudonymize](config, "parameters", "strategy")
                        .toEither
       piiFieldList <- extractFields(piiFields)
-    } yield PiiPseudonymizerConf(piiFieldList, emitIdentificationEvent, piiStrategy)
+    } yield PiiPseudonymizerConf(schemaKey, piiFieldList, emitIdentificationEvent, piiStrategy)
   }.toValidatedNel
 
   private[pii] def getHashFunction(strategyFunction: String): Either[String, DigestFunction] =
@@ -133,11 +134,24 @@ object PiiPseudonymizerEnrichment extends ParseableEnrichment {
       .map(_.asRight)
       .getOrElse(s"The specified json field $fieldName is not supported".asLeft)
 
-  private def matchesSchema(config: Json, schemaKey: SchemaKey): Either[String, Json] =
-    if (supportedSchema.matches(schemaKey))
-      config.asRight
-    else
-      s"Schema key $schemaKey is not supported. A '${supportedSchema.name}' enrichment must have schema '$supportedSchema'.".asLeft
+  /** Helper to remove fields that were wrongly added and are not in the original JSON. See #351. */
+  private[pii] def removeAddedFields(hashed: Json, original: Json): Json = {
+    val fixedObject = for {
+      hashedFields <- hashed.asObject
+      originalFields <- original.asObject
+      newFields = hashedFields.toList.flatMap {
+                    case (k, v) => originalFields(k).map(origV => (k, removeAddedFields(v, origV)))
+                  }
+    } yield Json.fromFields(newFields)
+
+    lazy val fixedArray = for {
+      hashedArr <- hashed.asArray
+      originalArr <- original.asArray
+      newArr = hashedArr.zip(originalArr).map { case (hashed, orig) => removeAddedFields(hashed, orig) }
+    } yield Json.fromValues(newArr)
+
+    fixedObject.orElse(fixedArray).getOrElse(hashed)
+  }
 }
 
 /**
@@ -209,7 +223,8 @@ final case class PiiJson(
                                           )
                                         }
                                         .getOrElse((parsed, List.empty[JsonModifiedField]))
-    } yield (substituted.noSpaces, modifiedFields.toList)).getOrElse((null, List.empty))
+    } yield (PiiPseudonymizerEnrichment.removeAddedFields(substituted, parsed).noSpaces, modifiedFields.toList))
+      .getOrElse((null, List.empty))
 
   /** Map context top fields with strategy if they match. */
   private def mapContextTopFields(tuple: (String, Json), strategy: PiiStrategy): (String, (Json, List[JsonModifiedField])) =
@@ -270,15 +285,15 @@ final case class PiiJson(
     val objectNode = io.circe.jackson.mapper.valueToTree[ObjectNode](json)
     val documentContext = JJsonPath.using(JsonPathConf).parse(objectNode)
     val modifiedFields = MutableList[JsonModifiedField]()
-    val documentContext2 = documentContext.map(
-      jsonPath,
-      new ScrambleMapFunction(strategy, modifiedFields, fieldMutator.fieldName, jsonPath, schema)
-    )
-    // make sure it is a structure preserving method, see #3636
-    //val transformedJValue = JsonMethods.fromJsonNode(documentContext.json[JsonNode]())
-    //val Diff(_, erroneouslyAdded, _) = jValue diff transformedJValue
-    //val Diff(_, withoutCruft, _) = erroneouslyAdded diff transformedJValue
-    (jacksonToCirce(documentContext2.json[JsonNode]()), modifiedFields.toList)
+    Option(documentContext.read[AnyRef](jsonPath)) match { // check that json object not null
+      case None => (jacksonToCirce(documentContext.json[JsonNode]()), modifiedFields.toList)
+      case _ =>
+        val documentContext2 = documentContext.map(
+          jsonPath,
+          new ScrambleMapFunction(strategy, modifiedFields, fieldMutator.fieldName, jsonPath, schema)
+        )
+        (jacksonToCirce(documentContext2.json[JsonNode]()), modifiedFields.toList)
+    }
   }
 }
 
@@ -296,7 +311,9 @@ private final case class ScrambleMapFunction(
         val _ = modifiedFields += JsonModifiedField(fieldName, s, newValue, jsonPath, schema)
         newValue
       case a: ArrayNode =>
-        a.elements.asScala.map {
+        val mapper = new ObjectMapper()
+        val arr = mapper.createArrayNode()
+        a.elements.asScala.foreach {
           case t: TextNode =>
             val originalValue = t.asText()
             val newValue = strategy.scramble(originalValue)
@@ -307,9 +324,11 @@ private final case class ScrambleMapFunction(
               jsonPath,
               schema
             )
-            newValue
-          case default: AnyRef => default
+            arr.add(newValue)
+          case default: AnyRef => arr.add(default)
+          case null => arr.add(NullNode.getInstance())
         }
-      case default: AnyRef => default
+        arr
+      case _ => currentValue
     }
 }

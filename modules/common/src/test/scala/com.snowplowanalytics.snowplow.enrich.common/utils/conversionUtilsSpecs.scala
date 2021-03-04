@@ -13,12 +13,18 @@
 package com.snowplowanalytics.snowplow.enrich.common
 package utils
 
-import java.net.URI
+import java.net.{Inet6Address, InetAddress, URI}
+import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
 
 import cats.syntax.either._
 import cats.syntax.option._
-import com.snowplowanalytics.snowplow.badrows._
+
+import org.scalacheck.Gen
 import org.scalacheck.Arbitrary._
+
+import com.snowplowanalytics.snowplow.badrows._
+
 import org.specs2.{ScalaCheck, Specification}
 import org.specs2.mutable.{Specification => MSpecification}
 import org.specs2.matcher.DataTables
@@ -270,6 +276,49 @@ class ValidateUuidSpec extends Specification with DataTables with ScalaCheck {
     }
 }
 
+class ValidateIntegerSpec extends Specification {
+  def is = s2"""
+  validateInteger should return the original string if it contains an integer                     $e1
+  validateInteger should return an enrichment failure for a string not containing a valid integer $e2
+  """
+
+  val FieldName = "integer"
+
+  def e1 = ConversionUtils.validateInteger(FieldName, "123") must beRight("123")
+
+  def e2 = {
+    val str = "abc"
+    ConversionUtils.validateInteger(FieldName, str) must beLeft(
+      FailureDetails.EnrichmentFailure(
+        None,
+        FailureDetails.EnrichmentFailureMessage.InputData(
+          FieldName,
+          Some(str),
+          "not a valid integer"
+        )
+      )
+    )
+  }
+}
+
+class DecodeStringSpec extends Specification {
+  def is = s2"""
+  decodeString should decode a correctly URL-encoded string            $e1
+  decodeString should fail decoding a string not correctly URL-encoded $e2
+  """
+
+  val utf8 = StandardCharsets.UTF_8
+
+  def e1 = {
+    val clear = "12 ++---=&&3abc%%%34%2234%$#@%^PLLPbgfxbf$#%$@#@^"
+    val encoded = ConversionUtils.encodeString(utf8.toString(), clear)
+    ConversionUtils.decodeString(utf8, encoded) must beRight(clear)
+  }
+
+  def e2 =
+    ConversionUtils.decodeString(utf8, "%%23") must beLeft
+}
+
 class StringToDoubleLikeSpec extends Specification with DataTables {
   def is = s2"""
   stringToDoublelike should fail if the supplied String is not parseable as a number                    $e1
@@ -415,4 +464,56 @@ class ExtractQueryStringSpec extends Specification {
 
   def e4 =
     ConversionUtils.extractQuerystring(new URI(s"${baseUri}a=b&a=c"), UTF_8) must beRight(List(("a" -> Some("b")), ("a" -> Some("c"))))
+}
+
+class ExtractInetAddressSpec extends Specification with ScalaCheck {
+  def is = s2"""
+  extractInetAddress should return None on invalid string $e1
+  extractInetAddress should return Some on every valid IPv6 $e2
+  """
+
+  def e1 =
+    ConversionUtils.extractInetAddress("unknown") must beNone
+
+  def e2 =
+    prop { (ip: String) =>
+      ConversionUtils.extractInetAddress(ip) must beSome
+    }.setGen(ipv6Gen.map(_.toInet6Address.getHostAddress))
+
+  // Implementation taken from http4s tests suite
+  private case class Ipv6Address(
+    a: Short,
+    b: Short,
+    c: Short,
+    d: Short,
+    e: Short,
+    f: Short,
+    g: Short,
+    h: Short
+  ) {
+    def toInet6Address: Inet6Address = {
+      val byteBuffer = ByteBuffer.allocate(16)
+      byteBuffer.putShort(a)
+      byteBuffer.putShort(b)
+      byteBuffer.putShort(c)
+      byteBuffer.putShort(d)
+      byteBuffer.putShort(e)
+      byteBuffer.putShort(f)
+      byteBuffer.putShort(g)
+      byteBuffer.putShort(h)
+      InetAddress.getByAddress(byteBuffer.array).asInstanceOf[Inet6Address]
+    }
+  }
+
+  private val ipv6Gen: Gen[Ipv6Address] =
+    for {
+      a <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      b <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      c <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      d <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      e <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      f <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      g <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+      h <- Gen.chooseNum(Short.MinValue, Short.MaxValue)
+    } yield Ipv6Address(a, b, c, d, e, f, g, h)
 }

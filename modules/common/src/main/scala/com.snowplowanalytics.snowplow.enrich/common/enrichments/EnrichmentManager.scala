@@ -13,8 +13,6 @@
 package com.snowplowanalytics.snowplow.enrich.common
 package enrichments
 
-import scala.util.matching.Regex
-
 import java.nio.charset.Charset
 import java.net.URI
 import java.time.Instant
@@ -51,9 +49,6 @@ import outputs.EnrichedEvent
 import utils.{IgluUtils, ConversionUtils => CU}
 
 object EnrichmentManager {
-
-  // Regex for IPv4 without port
-  val IPv4Regex: Regex = """(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}).*""".r
 
   /**
    * Run the enrichment workflow
@@ -128,7 +123,7 @@ object EnrichmentManager {
         getDerivedTstamp(enriched)
 
       // Fetch IAB enrichment context (before anonymizing the IP address)
-      val iabContext: Either[NonEmptyList[FailureDetails.EnrichmentFailure], Option[
+      val iabContext: Either[FailureDetails.EnrichmentFailure, Option[
         SelfDescribingData[Json]
       ]] =
         getIabContext(enriched, registry.iab)
@@ -206,7 +201,7 @@ object EnrichmentManager {
           collectorVersionSet.toValidatedNel,
           pageUri.toValidatedNel,
           derivedTstamp.toValidatedNel,
-          iabContext.toValidated,
+          iabContext.toValidatedNel,
           uaUtils.toValidatedNel,
           uaParser.toValidatedNel,
           refererUri.toValidatedNel,
@@ -437,27 +432,17 @@ object EnrichmentManager {
   def getIabContext(
     event: EnrichedEvent,
     iabEnrichment: Option[IabEnrichment]
-  ): Either[NonEmptyList[FailureDetails.EnrichmentFailure], Option[SelfDescribingData[Json]]] =
-    if (List(null, "", s"\0").contains(event.useragent)) None.asRight
-    else
-      iabEnrichment match {
-        case Some(iab) =>
-          val ipAddressWithoutPort = event.user_ipaddress match {
-            case IPv4Regex(ipv4) => ipv4
-            case ipv6 =>
-              if (ipv6.contains('[') && ipv6.contains(']'))
-                ipv6.substring(ipv6.indexOf('['), ipv6.indexOf(']'))
-              else ipv6
-          }
-          iab
-            .getIabContext(
-              Option(event.useragent),
-              Option(ipAddressWithoutPort),
-              Option(event.derived_tstamp).map(EventEnrichments.fromTimestamp)
-            )
-            .map(_.some)
-        case None => None.asRight
-      }
+  ): Either[FailureDetails.EnrichmentFailure, Option[SelfDescribingData[Json]]] = {
+    val result = for {
+      iab <- iabEnrichment
+      useragent <- Option(event.useragent).filter(_.trim.nonEmpty)
+      ipString <- Option(event.user_ipaddress)
+      ip <- CU.extractInetAddress(ipString)
+      tstamp <- Option(event.derived_tstamp).map(EventEnrichments.fromTimestamp)
+    } yield iab.getIabContext(useragent, ip, tstamp)
+
+    result.sequence
+  }
 
   def anonIp(event: EnrichedEvent, anonIp: Option[AnonIpEnrichment]): Option[String] =
     Option(event.user_ipaddress).map { ip =>
@@ -648,11 +633,11 @@ object EnrichmentManager {
 
   def setEventFingerprint(
     event: EnrichedEvent,
-    sourceMap: Map[String, String],
+    parameters: RawEventParameters,
     eventFingerprint: Option[EventFingerprintEnrichment]
   ): Unit =
     eventFingerprint match {
-      case Some(efe) => event.event_fingerprint = efe.getEventFingerprint(sourceMap)
+      case Some(efe) => event.event_fingerprint = efe.getEventFingerprint(parameters)
       case _ => ()
     }
 

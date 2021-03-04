@@ -10,28 +10,29 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the Apache License Version 2.0 for the specific language governing permissions and limitations there under.
  */
-package com.snowplowanalytics.snowplow.enrich.common
-package adapters
-package registry
-package snowplow
+package com.snowplowanalytics.snowplow.enrich.common.adapters.registry.snowplow
 
 import cats.Monad
 import cats.data.{EitherT, NonEmptyList, Validated, ValidatedNel}
 import cats.data.Validated._
 import cats.implicits._
+
 import cats.effect.Clock
+
+import io.circe.Json
 
 import com.snowplowanalytics.iglu.client.Client
 import com.snowplowanalytics.iglu.client.resolver.registries.RegistryLookup
 import com.snowplowanalytics.iglu.core.{SchemaCriterion, SelfDescribingData}
-import com.snowplowanalytics.iglu.core.circe.instances._
+import com.snowplowanalytics.iglu.core.circe.implicits._
 
 import com.snowplowanalytics.snowplow.badrows.FailureDetails
 
-import io.circe.Json
-
-import loaders.CollectorPayload
-import utils.{HttpClient, JsonUtils => JU}
+import com.snowplowanalytics.snowplow.enrich.common.RawEventParameters
+import com.snowplowanalytics.snowplow.enrich.common.adapters.RawEvent
+import com.snowplowanalytics.snowplow.enrich.common.adapters.registry.Adapter
+import com.snowplowanalytics.snowplow.enrich.common.loaders.CollectorPayload
+import com.snowplowanalytics.snowplow.enrich.common.utils.{HttpClient, JsonUtils => JU}
 
 /**
  * Version 2 of the Tracker Protocol supports GET and POST. Note that with POST, data can still be
@@ -40,9 +41,9 @@ import utils.{HttpClient, JsonUtils => JU}
 object Tp2Adapter extends Adapter {
   // Expected content types for a request body
   private object ContentTypes {
-    val list =
+    val list: List[String] =
       List("application/json", "application/json; charset=utf-8", "application/json; charset=UTF-8")
-    val str = list.mkString(", ")
+    val str: String = list.mkString(", ")
   }
 
   // Request body expected to validate against this JSON Schema
@@ -104,7 +105,7 @@ object Tp2Adapter extends Adapter {
         case (None, None) => Monad[F].pure(NonEmptyList.one(qsParams).valid)
         case (Some(bdy), Some(_)) => // Build our NEL of parameters
           (for {
-            json <- extractAndValidateJson(PayloadDataSchema, bdy, "body", client)
+            json <- extractAndValidateJson(PayloadDataSchema, bdy, client)
             nel <- EitherT.fromEither[F](toParametersNel(json, qsParams))
           } yield nel).toValidated
       }
@@ -132,11 +133,11 @@ object Tp2Adapter extends Adapter {
     FailureDetails.TrackerProtocolViolation
   ], NonEmptyList[RawEventParameters]] = {
     val events: Option[
-      Vector[Vector[Validated[FailureDetails.TrackerProtocolViolation, (String, String)]]]
+      Vector[Vector[Validated[FailureDetails.TrackerProtocolViolation, (String, Option[String])]]]
     ] = for {
       topLevel <- instance.asArray
       fields <- topLevel.map(_.asObject).sequence
-      res = fields.map(_.toVector.map(toParameter))
+      res = fields.map(_.toVector.map(toParameter).map(_.map { case (k, v) => (k, Some(v)) }))
     } yield res
 
     events match {
@@ -200,7 +201,6 @@ object Tp2Adapter extends Adapter {
 
   /**
    * Extract the JSON from a String, and validate it against the supplied JSON Schema.
-   * @param field The name of the field containing the JSON instance
    * @param schemaCriterion The schema that we expected this self-describing JSON to conform to
    * @param instance A JSON instance as String
    * @param client Our Iglu client, for schema lookups
@@ -210,7 +210,6 @@ object Tp2Adapter extends Adapter {
   private def extractAndValidateJson[F[_]: Monad: RegistryLookup: Clock](
     schemaCriterion: SchemaCriterion,
     instance: String,
-    field: String,
     client: Client[F, Json]
   ): EitherT[F, NonEmptyList[FailureDetails.TrackerProtocolViolation], Json] =
     (for {
@@ -219,7 +218,7 @@ object Tp2Adapter extends Adapter {
                .leftMap(e =>
                  NonEmptyList.one(
                    FailureDetails.TrackerProtocolViolation
-                     .NotJson(field, instance.some, e)
+                     .NotJson("body", instance.some, e)
                  )
                )
            )
