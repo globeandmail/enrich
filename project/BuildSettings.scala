@@ -24,7 +24,7 @@ import bintray.BintrayKeys._
 import com.typesafe.sbt.SbtNativePackager.autoImport._
 import com.typesafe.sbt.packager.linux.LinuxPlugin.autoImport._
 import com.typesafe.sbt.packager.docker.DockerPlugin.autoImport._
-import com.typesafe.sbt.packager.docker.{ DockerVersion, ExecCmd }
+import com.typesafe.sbt.packager.docker.{ ExecCmd, DockerPermissionStrategy }
 
 import scoverage.ScoverageKeys._
 
@@ -35,11 +35,10 @@ object BuildSettings {
   /** Common base settings */
   lazy val basicSettings = Seq(
     organization          :=  "com.snowplowanalytics",
-    scalaVersion          :=  "2.12.11",
-    version               :=  "1.4.2",
-    javacOptions          :=  Seq("-source", "11", "-target", "11"),
-    resolvers             ++= Dependencies.resolutionRepos,
-    licenses              += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0.html")),
+    scalaVersion          :=  "2.12.10",
+    version               :=  "1.3.0",
+    javacOptions          :=  Seq("-source", "1.8", "-target", "1.8"),
+    resolvers             ++= Dependencies.resolutionRepos
   )
 
   /** Custom sbt-buildinfo replacement, used by SCE only */
@@ -59,30 +58,30 @@ object BuildSettings {
   )
 
   /** Snowplow Common Enrich Maven publishing settings */
-  lazy val publishSettings = bintraySettings ++ Seq(
+  lazy val publishSettings: Seq[sbt.Setting[_]] = bintraySettings ++ Seq(
     publishMavenStyle := true,
     publishArtifact := true,
     publishArtifact in Test := false,
+    licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0.html")),
     bintrayOrganization := Some("snowplow"),
     bintrayRepository := "snowplow-maven",
     pomIncludeRepository := { _ => false },
     homepage := Some(url("http://snowplowanalytics.com")),
     scmInfo := Some(ScmInfo(url("https://github.com/snowplow/snowplow"),
       "scm:git@github.com:snowplow/snowplow.git")),
-    pomExtra := (
-      <developers>
+    pomExtra := <developers>
         <developer>
           <name>Snowplow Analytics Ltd</name>
           <email>support@snowplowanalytics.com</email>
           <organization>Snowplow Analytics Ltd</organization>
           <organizationUrl>http://snowplowanalytics.com</organizationUrl>
         </developer>
-      </developers>)
+      </developers>
   )
 
   lazy val formatting = Seq(
     scalafmtConfig    := file(".scalafmt.conf"),
-    scalafmtOnCompile := false
+    scalafmtOnCompile := true
   )
 
   lazy val scoverageSettings = Seq(
@@ -102,11 +101,13 @@ object BuildSettings {
   lazy val sbtAssemblySettings = Seq(
     assemblyJarName in assembly := { s"${moduleName.value}-${version.value}.jar" },
     assemblyMergeStrategy in assembly := {
-      case x if x.endsWith("native-image.properties") => MergeStrategy.first
-      case x if x.endsWith("io.netty.versions.properties") => MergeStrategy.first
-      case x if x.endsWith("public-suffix-list.txt") => MergeStrategy.first
       case x if x.endsWith("ProjectSettings$.class") => MergeStrategy.first
       case x if x.endsWith("module-info.class") => MergeStrategy.first
+      // Below are AWS SDK v2 configuration files - can be discarded
+      case PathList(ps@_*) if Set("codegen.config" , "service-2.json" , "waiters-2.json" , "public-suffix-list.txt",
+        "customization.config" , "examples-1.json" , "paginators-1.json", "mime.types", "io.netty.versions.properties")
+        .contains(ps.last) =>
+        MergeStrategy.discard
       case x =>
         val oldStrategy = (assemblyMergeStrategy in assembly).value
         oldStrategy(x)
@@ -123,10 +124,11 @@ object BuildSettings {
   /** Docker settings, used by SE */
   lazy val dockerSettings = Seq(
     maintainer in Docker := "Snowplow Analytics Ltd. <support@snowplowanalytics.com>",
-    dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/base-debian:0.2.1",
+    dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/base-debian:0.1.0",
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
-    dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     daemonUserUid in Docker := None,
     defaultLinuxInstallLocation in Docker := "/home/snowplow" // must be home directory of daemonUser
   )
@@ -134,10 +136,11 @@ object BuildSettings {
   /** Docker settings, used by BE */
   lazy val dataflowDockerSettings = Seq(
     maintainer in Docker := "Snowplow Analytics Ltd. <support@snowplowanalytics.com>",
-    dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/k8s-dataflow:0.2.0",
+    dockerBaseImage := "snowplow-docker-registry.bintray.io/snowplow/k8s-dataflow:0.1.1",
     daemonUser in Docker := "snowplow",
     dockerUpdateLatest := true,
-    dockerVersion := Some(DockerVersion(18, 9, 0, Some("ce"))),
+    dockerPermissionStrategy := DockerPermissionStrategy.Run,
+
     dockerCommands := dockerCommands.value.map {
       case ExecCmd("ENTRYPOINT", args) => ExecCmd("ENTRYPOINT", "docker-entrypoint.sh", args)
       case e => e
