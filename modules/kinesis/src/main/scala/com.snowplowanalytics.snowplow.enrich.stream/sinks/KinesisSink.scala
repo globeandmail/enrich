@@ -291,11 +291,13 @@ class KinesisSink(
     }
 
   private[sinks] def getErrorsSummary(badResponses: List[PutRecordsResultEntry]): Map[String, (Long, String)] =
-    badResponses.foldLeft(Map[String, (Long, String)]())((counts, r) =>
-      if (counts.contains(r.getErrorCode))
-        counts + (r.getErrorCode -> (counts(r.getErrorCode)._1 + 1 -> r.getErrorMessage))
-      else
-        counts + (r.getErrorCode -> ((1, r.getErrorMessage)))
+    badResponses.foldLeft(Map[String, (Long, String)]())(
+      (counts, r) =>
+        if (counts.contains(r.getErrorCode)) {
+          counts + (r.getErrorCode -> (counts(r.getErrorCode)._1 + 1 -> r.getErrorMessage))
+        } else {
+          counts + (r.getErrorCode -> ((1, r.getErrorMessage)))
+        }
     )
 
   private[sinks] def logErrorsSummary(errorsSummary: Map[String, (Long, String)]): Unit =

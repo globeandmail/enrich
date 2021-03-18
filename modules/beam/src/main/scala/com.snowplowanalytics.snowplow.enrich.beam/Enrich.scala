@@ -14,39 +14,31 @@
  */
 package com.snowplowanalytics.snowplow.enrich.beam
 
-import scala.collection.JavaConverters._
-
-import io.circe.Json
-
-import io.sentry.Sentry
-
 import cats.Id
 import cats.data.Validated
 import cats.implicits._
-
 import com.snowplowanalytics.iglu.client.Client
-import com.snowplowanalytics.snowplow.badrows.{BadRow, Processor}
+import com.snowplowanalytics.snowplow.badrows._
 import com.snowplowanalytics.snowplow.enrich.common.EtlPipeline
 import com.snowplowanalytics.snowplow.enrich.common.adapters.AdapterRegistry
 import com.snowplowanalytics.snowplow.enrich.common.enrichments.EnrichmentRegistry
 import com.snowplowanalytics.snowplow.enrich.common.enrichments.registry.EnrichmentConf
 import com.snowplowanalytics.snowplow.enrich.common.loaders.ThriftLoader
 import com.snowplowanalytics.snowplow.enrich.common.outputs.EnrichedEvent
-
 import com.spotify.scio._
 import com.spotify.scio.coders.Coder
 import com.spotify.scio.pubsub.PubSubAdmin
 import com.spotify.scio.values.{DistCache, SCollection}
-
+import _root_.io.circe.Json
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubOptions
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions
 import org.joda.time.DateTime
 import org.slf4j.LoggerFactory
-import java.net.URI
-
-import com.snowplowanalytics.snowplow.enrich.beam.config._
-import com.snowplowanalytics.snowplow.enrich.beam.singleton._
-import com.snowplowanalytics.snowplow.enrich.beam.utils._
+import _root_.io.sentry.Sentry
+import scala.collection.JavaConverters._
+import config._
+import singleton._
+import utils._
 
 /** Enrich job using the Beam API through SCIO */
 object Enrich {
@@ -56,8 +48,7 @@ object Enrich {
   implicit val badRowScioCodec: Coder[BadRow] = Coder.kryo[BadRow]
 
   // the maximum record size in Google PubSub is 10Mb
-  // the maximum PubSubIO size is 7Mb to overcome base64-encoding
-  private val MaxRecordSize = 6900000
+  private val MaxRecordSize = 10000000
   private val MetricsNamespace = "snowplow"
 
   val enrichedEventSizeDistribution =
@@ -69,28 +60,48 @@ object Enrich {
 
   def main(cmdlineArgs: Array[String]): Unit = {
     val (sc, args) = ContextAndArgs(cmdlineArgs)
-    val config = for {
-      conf <- EnrichConfig(args)
-      _ = sc.setJobName(conf.jobName)
-      _ <- checkTopicExists(sc, conf.enriched)
-      _ <- checkTopicExists(sc, conf.bad)
-      _ <- conf.pii.map(checkTopicExists(sc, _)).getOrElse(().asRight)
-    } yield conf
+    val parsedConfig = for {
+      config <- EnrichConfig(args)
+      _ = sc.setJobName(config.jobName)
+      _ <- checkTopicExists(sc, config.enriched)
+      _ <- checkTopicExists(sc, config.bad)
+      _ <- config.pii.map(checkTopicExists(sc, _)).getOrElse(().asRight)
+      resolverJson <- parseResolver(config.resolver)
+      client <- Client.parseDefault[Id](resolverJson).leftMap(_.toString).value
+      registryJson <- parseEnrichmentRegistry(config.enrichments, client)
+      confs <- EnrichmentRegistry.parse(registryJson, client, false).leftMap(_.toString).toEither
+      labels <- config.labels.map(parseLabels).getOrElse(Right(Map.empty[String, String]))
+      _ <- if (emitPii(confs) && config.pii.isEmpty) {
+        "A pii topic needs to be used in order to use the pii enrichment".asLeft
+      } else {
+        ().asRight
+      }
+    } yield ParsedEnrichConfig(
+      config.raw,
+      config.enriched,
+      config.bad,
+      config.pii,
+      resolverJson,
+      confs,
+      labels,
+      config.sentryDSN
+    )
 
-    config match {
+    parsedConfig match {
       case Left(e) =>
         System.err.println(e)
         System.exit(1)
-      case Right(c) =>
-        run(sc, c)
+      case Right(config) =>
+        run(sc, config)
         sc.run()
         ()
     }
   }
 
-  def run(sc: ScioContext, config: EnrichConfig): Unit = {
-    if (config.labels.nonEmpty)
+  def run(sc: ScioContext, config: ParsedEnrichConfig): Unit = {
+    if (config.labels.nonEmpty) {
       sc.optionsAs[DataflowPipelineOptions].setLabels(config.labels.asJava)
+    }
 
     val cachedFiles: DistCache[List[Either[String, String]]] =
       buildDistCache(sc, config.enrichmentConfs)
@@ -99,7 +110,7 @@ object Enrich {
       sc.withName("raw-from-pubsub").pubsubSubscription[Array[Byte]](config.raw)
 
     val enriched: SCollection[Validated[BadRow, EnrichedEvent]] =
-      enrichEvents(raw, config.resolver, config.enrichmentConfs, cachedFiles, config.sentryDSN, config.metrics)
+      enrichEvents(raw, config.resolver, config.enrichmentConfs, cachedFiles, config.sentryDSN)
 
     val (failures, successes): (SCollection[BadRow], SCollection[EnrichedEvent]) = {
       val enrichedPartitioned = enriched.withName("split-enriched-good-bad").partition(_.isValid)
@@ -117,7 +128,7 @@ object Enrich {
       (failures, successes)
     }
 
-    val (tooBigSuccesses, properlySizedSuccesses) = formatEnrichedEvents(config.metrics, successes)
+    val (tooBigSuccesses, properlySizedSuccesses) = formatEnrichedEvents(successes)
     properlySizedSuccesses
       .withName("get-properly-sized-enriched")
       .map(_._1)
@@ -178,8 +189,7 @@ object Enrich {
     resolver: Json,
     enrichmentConfs: List[EnrichmentConf],
     cachedFiles: DistCache[List[Either[String, String]]],
-    sentryDSN: Option[URI],
-    metrics: Boolean
+    sentryDSN: Option[String]
   ): SCollection[Validated[BadRow, EnrichedEvent]] =
     raw
       .withName("enrich")
@@ -193,7 +203,7 @@ object Enrich {
             sentryDSN
           )
         }
-        if (metrics) timeToEnrichDistribution.update(time) else ()
+        timeToEnrichDistribution.update(time)
         enriched
       }
       .withName("flatten-enriched")
@@ -205,19 +215,15 @@ object Enrich {
    * @param enriched collection of events that went through the enrichment phase
    * @return a collection of properly-sized enriched events and another of oversized ones
    */
-  private def formatEnrichedEvents(
-    metrics: Boolean,
-    enriched: SCollection[EnrichedEvent]
-  ): (SCollection[(String, Int)], SCollection[(String, Int)]) =
+  private def formatEnrichedEvents(enriched: SCollection[EnrichedEvent]): (SCollection[(String, Int)], SCollection[(String, Int)]) =
     enriched
       .withName("format-enriched")
       .map { enrichedEvent =>
-        if (metrics)
-          getEnrichedEventMetrics(enrichedEvent).foreach(metric => ScioMetrics.counter(MetricsNamespace, metric).inc())
-        else ()
+        getEnrichedEventMetrics(enrichedEvent)
+          .foreach(ScioMetrics.counter(MetricsNamespace, _).inc())
         val formattedEnrichedEvent = tabSeparatedEnrichedEvent(enrichedEvent)
         val size = getSize(formattedEnrichedEvent)
-        if (metrics) enrichedEventSizeDistribution.update(size.toLong) else ()
+        enrichedEventSizeDistribution.update(size.toLong)
         (formattedEnrichedEvent, size)
       }
       .withName("split-oversized")
@@ -248,8 +254,9 @@ object Enrich {
         .withName("split-oversized-pii")
         .partition(_._2 >= MaxRecordSize)
       Some((tooBigPiis, properlySizedPiis))
-    } else
+    } else {
       None
+    }
 
   /**
    * Enrich a collector payload into a list of [[EnrichedEvent]].
@@ -260,8 +267,9 @@ object Enrich {
     data: Array[Byte],
     enrichmentRegistry: EnrichmentRegistry[Id],
     client: Client[Id, Json],
-    sentryDSN: Option[URI]
+    sentryDSN: Option[String]
   ): List[Validated[BadRow, EnrichedEvent]] = {
+    val processor = Processor(generated.BuildInfo.name, generated.BuildInfo.version)
     val collectorPayload = ThriftLoader.toCollectorPayload(data, processor)
     Either.catchNonFatal(
       EtlPipeline.processEvents(
@@ -279,7 +287,7 @@ object Enrich {
           throwable
         )
         sentryDSN.foreach { dsn =>
-          System.setProperty("sentry.dsn", dsn.toString())
+          System.setProperty("sentry.dsn", dsn)
           Sentry.capture(throwable)
         }
         Nil
@@ -288,15 +296,16 @@ object Enrich {
   }
 
   /**
-   * Builds a Scio's [[DistCache]] which downloads the needed files and create the necessary
+   * Builds a SCIO's [[DistCache]] which downloads the needed files and create the necessary
    * symlinks.
-   * @param sc Scio context
+   * @param sc [[ScioContext]]
    * @param enrichmentConfs list of enrichment configurations
    * @return a properly build [[DistCache]]
    */
   private def buildDistCache(sc: ScioContext, enrichmentConfs: List[EnrichmentConf]): DistCache[List[Either[String, String]]] = {
     val filesToCache: List[(String, String)] = enrichmentConfs
-      .flatMap(_.filesToCache)
+      .map(_.filesToCache)
+      .flatten
       .map { case (uri, sl) => (uri.toString, sl) }
     sc.distCache(filesToCache.map(_._1)) { files =>
       val symLinks = files.toList
@@ -312,17 +321,18 @@ object Enrich {
 
   /**
    * Checks a PubSub topic exists before launching the job.
-   * @param sc Scio Context
+   * @param sc [[ScioContext]]
    * @param topicName name of the topic to check for existence, projects/{project}/topics/{topic}
    * @return Right if it exists, left otherwise
    */
   private def checkTopicExists(sc: ScioContext, topicName: String): Either[String, Unit] =
-    if (sc.isTest)
+    if (sc.isTest) {
       ().asRight
-    else
+    } else {
       PubSubAdmin.topic(sc.options.as(classOf[PubsubOptions]), topicName) match {
         case scala.util.Success(_) => ().asRight
         case scala.util.Failure(e) =>
           s"Output topic $topicName couldn't be retrieved: ${e.getMessage}".asLeft
       }
+    }
 }
