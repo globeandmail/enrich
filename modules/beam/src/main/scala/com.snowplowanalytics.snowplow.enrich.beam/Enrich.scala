@@ -66,25 +66,24 @@ object Enrich {
       _ <- checkTopicExists(sc, config.enriched)
       _ <- checkTopicExists(sc, config.bad)
       _ <- config.pii.map(checkTopicExists(sc, _)).getOrElse(().asRight)
-      resolverJson <- parseResolver(config.resolver)
-      client <- Client.parseDefault[Id](resolverJson).leftMap(_.toString).value
-      registryJson <- parseEnrichmentRegistry(config.enrichments, client)
+      client <- Client.parseDefault[Id](config.resolver).leftMap(_.toString).value
+      registryJson <- parseEnrichmentRegistry(config.pii, client)
       confs <- EnrichmentRegistry.parse(registryJson, client, false).leftMap(_.toString).toEither
-      labels <- config.labels.map(parseLabels).getOrElse(Right(Map.empty[String, String]))
-      _ <- if (emitPii(confs) && config.pii.isEmpty) {
-        "A pii topic needs to be used in order to use the pii enrichment".asLeft
-      } else {
-        ().asRight
-      }
-    } yield ParsedEnrichConfig(
+      _ <- if (emitPii(confs) && config.pii.isEmpty)
+             "A pii topic needs to be used in order to use the pii enrichment".asLeft
+           else
+             ().asRight
+    } yield EnrichConfig(
+      config.jobName,
       config.raw,
       config.enriched,
       config.bad,
       config.pii,
-      resolverJson,
+      config.resolver,
       confs,
-      labels,
-      config.sentryDSN
+      config.labels,
+      config.sentryDSN,
+      config.metrics
     )
 
     parsedConfig match {
@@ -98,10 +97,9 @@ object Enrich {
     }
   }
 
-  def run(sc: ScioContext, config: ParsedEnrichConfig): Unit = {
-    if (config.labels.nonEmpty) {
+  def run(sc: ScioContext, config: EnrichConfig): Unit = {
+    if (config.labels.nonEmpty)
       sc.optionsAs[DataflowPipelineOptions].setLabels(config.labels.asJava)
-    }
 
     val cachedFiles: DistCache[List[Either[String, String]]] =
       buildDistCache(sc, config.enrichmentConfs)
@@ -110,7 +108,7 @@ object Enrich {
       sc.withName("raw-from-pubsub").pubsubSubscription[Array[Byte]](config.raw)
 
     val enriched: SCollection[Validated[BadRow, EnrichedEvent]] =
-      enrichEvents(raw, config.resolver, config.enrichmentConfs, cachedFiles, config.sentryDSN)
+      enrichEvents(raw, config.resolver, config.enrichmentConfs, cachedFiles, config.sentryDSN.map(_.toString))
 
     val (failures, successes): (SCollection[BadRow], SCollection[EnrichedEvent]) = {
       val enrichedPartitioned = enriched.withName("split-enriched-good-bad").partition(_.isValid)
@@ -254,9 +252,8 @@ object Enrich {
         .withName("split-oversized-pii")
         .partition(_._2 >= MaxRecordSize)
       Some((tooBigPiis, properlySizedPiis))
-    } else {
+    } else
       None
-    }
 
   /**
    * Enrich a collector payload into a list of [[EnrichedEvent]].
@@ -326,13 +323,12 @@ object Enrich {
    * @return Right if it exists, left otherwise
    */
   private def checkTopicExists(sc: ScioContext, topicName: String): Either[String, Unit] =
-    if (sc.isTest) {
+    if (sc.isTest)
       ().asRight
-    } else {
+    else
       PubSubAdmin.topic(sc.options.as(classOf[PubsubOptions]), topicName) match {
         case scala.util.Success(_) => ().asRight
         case scala.util.Failure(e) =>
           s"Output topic $topicName couldn't be retrieved: ${e.getMessage}".asLeft
       }
-    }
 }
